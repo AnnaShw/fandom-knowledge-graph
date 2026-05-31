@@ -1,0 +1,7 @@
+prefect>=2.14.0
+requests>=2.31.0
+mwparserfromhell>=0.6.6
+neo4j>=5.15.0
+pyvis>=0.3.2
+pyyaml>=6.0.1
+python-dotenv>=1.0.0
