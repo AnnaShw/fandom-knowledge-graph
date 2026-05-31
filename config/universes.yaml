@@ -1,0 +1,35 @@
+# Add a new universe by adding a new top-level key.
+# infobox_fields: maps wiki infobox field name → Neo4j relationship type.
+
+harrypotter:
+  name: "Harry Potter"
+  api_url: "https://harrypotter.fandom.com/api.php"
+  character_category: "Individuals"   # try "Characters" if this returns 0 results
+  infobox_fields:
+    family: FAMILY_OF
+    parents: PARENT_OF
+    siblings: SIBLING_OF
+    romances: ROMANTIC_WITH
+    affiliation: MEMBER_OF
+    house: MEMBER_OF
+    species: BELONGS_TO_SPECIES
+
+lotr:
+  name: "Lord of the Rings"
+  api_url: "https://lotr.fandom.com/api.php"
+  character_category: "Characters"
+  infobox_fields:
+    family: FAMILY_OF
+    siblings: SIBLING_OF
+    spouse: MARRIED_TO
+    affiliation: MEMBER_OF
+    race: BELONGS_TO_RACE
+
+dune:
+  name: "Dune"
+  api_url: "https://dune.fandom.com/api.php"
+  character_category: "Characters"
+  infobox_fields:
+    family: FAMILY_OF
+    affiliation: MEMBER_OF
+    homeworld: FROM_HOMEWORLD
