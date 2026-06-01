@@ -4,7 +4,7 @@
 harrypotter:
   name: "Harry Potter"
   api_url: "https://harrypotter.fandom.com/api.php"
-  character_category: "Individuals"   # try "Characters" if this returns 0 results
+  character_template: "Individual infobox"   # pages that embed this template = character pages
   infobox_fields:
     family: FAMILY_OF
     parents: PARENT_OF

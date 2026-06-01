@@ -11,8 +11,8 @@ def get_driver(uri: str, user: str, password: str):
 def setup_indexes(driver) -> None:
     with driver.session() as session:
         session.run(
-            "CREATE CONSTRAINT character_pk IF NOT EXISTS "
-            "FOR (c:Character) REQUIRE (c.name, c.universe) IS NODE KEY"
+            "CREATE INDEX character_name IF NOT EXISTS "
+            "FOR (c:Character) ON (c.name)"
         )
 
 

@@ -43,7 +43,34 @@ def _load_config(universe_key: str) -> dict:
 
 
 @task(retries=3, retry_delay_seconds=10)
-def fetch_category_members(api_url: str, category: str, limit: int) -> list[str]:
+def fetch_by_template(api_url: str, template: str, limit: int) -> list[str]:
+    """Fetch up to `limit` page titles that embed a given infobox template."""
+    logger = get_run_logger()
+    titles = []
+    params = {
+        "action": "query",
+        "generator": "embeddedin",
+        "geititle": f"Template:{template}",
+        "geilimit": 500,
+        "geinamespace": 0,   # main namespace only (no talk pages, templates, etc.)
+        "format": "json",
+    }
+    while len(titles) < limit:
+        resp = requests.get(api_url, params=params, headers=HEADERS, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        batch = data.get("query", {}).get("pages", {}).values()
+        titles.extend(p["title"] for p in batch if p.get("ns") == 0)
+        logger.info(f"  discovered {len(titles)} titles so far...")
+        if "continue" not in data:
+            break
+        params.update(data["continue"])
+        time.sleep(0.3)
+    return titles[:limit]
+
+
+@task(retries=3, retry_delay_seconds=10)
+def fetch_by_category(api_url: str, category: str, limit: int) -> list[str]:
     """Fetch up to `limit` page titles from a wiki category."""
     logger = get_run_logger()
     titles = []
@@ -99,8 +126,11 @@ def ingest_universe(universe_key: str = "harrypotter", limit: int = 200):
     config = _load_config(universe_key)
     logger.info(f"Ingesting: {config['name']}  |  limit={limit}")
 
-    # Step 1: discover character pages
-    titles = fetch_category_members(config["api_url"], config["character_category"], limit)
+    # Step 1: discover character pages (template-based or category-based)
+    if "character_template" in config:
+        titles = fetch_by_template(config["api_url"], config["character_template"], limit)
+    else:
+        titles = fetch_by_category(config["api_url"], config["character_category"], limit)
     logger.info(f"Found {len(titles)} characters to process")
 
     # Step 2: fetch wikitext and parse each character
