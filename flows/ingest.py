@@ -21,7 +21,7 @@ from prefect import flow, task
 from prefect.logging import get_run_logger
 
 from flows.parse import parse_character
-from flows.load import get_driver, setup_indexes, load_characters
+from flows.load import get_driver, setup_indexes, load_characters, clear_universe
 
 BATCH_SIZE = 50  # MediaWiki API max titles per request
 
@@ -99,6 +99,7 @@ def fetch_by_category(api_url: str, category: str, limit: int) -> list[str]:
         "cmtitle": f"Category:{category}",
         "cmlimit": 500,
         "cmtype": "page",
+        "cmnamespace": 0,
         "format": "json",
     }
     while len(titles) < limit:
@@ -142,10 +143,17 @@ def fetch_wikitext_batch(api_url: str, titles: list[str]) -> dict[str, str]:
 
 
 @flow(name="fandom-ingest", log_prints=True)
-def ingest_universe(universe_key: str = "harrypotter", limit: int = 200):
+def ingest_universe(universe_key: str = "harrypotter", limit: int = 200, clear: bool = False):
     logger = get_run_logger()
     config, field_mappings = _load_config(universe_key)
-    logger.info(f"Ingesting: {config['name']}  |  limit={limit}")
+    logger.info(f"Ingesting: {config['name']}  |  limit={limit}  |  clear={clear}")
+
+    if clear:
+        driver = get_driver(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)
+        try:
+            clear_universe(driver, universe_key)
+        finally:
+            driver.close()
 
     # Step 1: discover character pages (template-based or category-based)
     if "character_template" in config:
@@ -182,18 +190,19 @@ def ingest_universe(universe_key: str = "harrypotter", limit: int = 200):
 
 
 @flow(name="fandom-ingest-all", log_prints=True)
-def ingest_all_universes(limit: int = 200):
+def ingest_all_universes(limit: int = 200, clear: bool = False):
     all_configs = _load_all()
     results = {}
     for universe_key in _universe_keys(all_configs):
-        results[universe_key] = ingest_universe(universe_key=universe_key, limit=limit)
+        results[universe_key] = ingest_universe(universe_key=universe_key, limit=limit, clear=clear)
     return results
 
 
 if __name__ == "__main__":
     universe = sys.argv[1] if len(sys.argv) > 1 else "harrypotter"
-    limit = int(sys.argv[2]) if len(sys.argv) > 2 else 200
+    limit    = int(sys.argv[2]) if len(sys.argv) > 2 else 200
+    clear    = "--clear" in sys.argv
     if universe == "all":
-        ingest_all_universes(limit=limit)
+        ingest_all_universes(limit=limit, clear=clear)
     else:
-        ingest_universe(universe_key=universe, limit=limit)
+        ingest_universe(universe_key=universe, limit=limit, clear=clear)

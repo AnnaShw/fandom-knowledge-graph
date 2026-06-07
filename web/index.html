@@ -4,14 +4,15 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Fandom Knowledge Graph</title>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.29.0/cytoscape.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
-      font-family: 'Segoe UI', Arial, sans-serif;
-      background: #0f0f23;
-      color: #e0e0e0;
+      font-family: 'Lora', Georgia, serif;
+      background: #0e0b07;
+      color: #e8d5a3;
       height: 100vh;
       display: flex;
       flex-direction: column;
@@ -23,18 +24,27 @@
       display: flex;
       align-items: center;
       gap: 16px;
-      padding: 10px 20px;
-      background: #1a1a3a;
-      border-bottom: 1px solid #2a2a5a;
+      padding: 9px 20px;
+      background: #160f05;
+      border-bottom: 1px solid #3d2e14;
       flex-shrink: 0;
     }
 
     #controls h1 {
-      font-size: 1.05rem;
-      font-weight: 700;
-      color: #7eb3ff;
+      font-size: 1.2rem;
+      font-weight: 600;
+      font-style: italic;
+      color: #c9a84c;
       white-space: nowrap;
-      letter-spacing: 0.5px;
+      letter-spacing: 0.3px;
+    }
+
+    /* thin ornamental divider after the title */
+    #controls h1::after {
+      content: '·';
+      margin-left: 14px;
+      color: #3d2e14;
+      font-style: normal;
     }
 
     .control-group {
@@ -44,57 +54,61 @@
     }
 
     .control-group label {
-      font-size: 0.82rem;
-      color: #aaa;
+      font-size: 0.85rem;
+      color: #7a6030;
       white-space: nowrap;
     }
 
     select, input[type="text"] {
-      background: #2a2a4a;
-      color: #e0e0e0;
-      border: 1px solid #3a3a6a;
-      border-radius: 6px;
-      padding: 5px 10px;
-      font-size: 0.88rem;
+      background: #1e1508;
+      color: #e8d5a3;
+      border: 1px solid #3d2e14;
+      border-radius: 3px;
+      padding: 4px 10px;
+      font-size: 0.9rem;
+      font-family: inherit;
       cursor: pointer;
     }
 
-    select:focus, input[type="text"]:focus { outline: 2px solid #7eb3ff; }
+    select:focus, input[type="text"]:focus { outline: 1px solid #c9a84c; }
 
     input[type="range"] {
       width: 110px;
-      accent-color: #7eb3ff;
+      accent-color: #c9a84c;
       cursor: pointer;
     }
 
     #node-count-label {
-      font-size: 0.82rem;
-      color: #aaa;
+      font-size: 0.85rem;
+      color: #7a6030;
       min-width: 52px;
     }
 
-    #search-input { width: 170px; }
-    #search-input::placeholder { color: #555; }
+    #search-input { width: 160px; }
+    #search-input::placeholder { color: #3d2e14; }
 
     button#load-btn {
-      background: #2d4f9e;
-      color: #e0e0e0;
-      border: 1px solid #4a6abb;
-      border-radius: 6px;
-      padding: 5px 16px;
-      font-size: 0.88rem;
+      background: #1e1508;
+      color: #c9a84c;
+      border: 1px solid #5a4020;
+      border-radius: 3px;
+      padding: 4px 18px;
+      font-size: 0.9rem;
+      font-family: inherit;
       font-weight: 600;
       cursor: pointer;
       white-space: nowrap;
+      letter-spacing: 0.5px;
     }
-    button#load-btn:hover { background: #3a5fc0; }
-    button#load-btn:active { background: #2a4090; }
+    button#load-btn:hover  { border-color: #c9a84c; background: #251a08; }
+    button#load-btn:active { background: #160f05; }
 
     #status {
       margin-left: auto;
-      font-size: 0.78rem;
-      color: #666;
+      font-size: 0.8rem;
+      color: #5a4020;
       white-space: nowrap;
+      font-style: italic;
     }
 
     /* ── Main canvas area ── */
@@ -104,14 +118,14 @@
       overflow: hidden;
     }
 
-    #cy { width: 100%; height: 100%; }
+    #cy { width: 100%; height: 100%; background: #080502; }
 
     /* ── Loading overlay ── */
     #loading {
       display: none;
       position: absolute;
       inset: 0;
-      background: rgba(15, 15, 35, 0.82);
+      background: rgba(8, 5, 2, 0.86);
       z-index: 100;
       align-items: center;
       justify-content: center;
@@ -121,30 +135,30 @@
     #loading.visible { display: flex; }
 
     .spinner {
-      width: 38px;
-      height: 38px;
-      border: 4px solid #2a2a5a;
-      border-top-color: #7eb3ff;
+      width: 36px;
+      height: 36px;
+      border: 3px solid #3d2e14;
+      border-top-color: #c9a84c;
       border-radius: 50%;
-      animation: spin 0.75s linear infinite;
+      animation: spin 0.8s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    #loading span { font-size: 0.9rem; color: #aaa; }
+    #loading span { font-size: 1rem; color: #7a6030; font-style: italic; }
 
     /* ── Info panel ── */
     #info {
       position: absolute;
       top: 14px;
       right: 14px;
-      width: 250px;
+      width: 255px;
       max-height: calc(100% - 28px);
-      background: #1a1a3a;
-      border: 1px solid #2a2a5a;
-      border-radius: 10px;
+      background: #160f05;
+      border: 1px solid #3d2e14;
+      border-radius: 4px;
       padding: 14px 16px;
-      font-size: 0.83rem;
-      line-height: 1.6;
+      font-size: 0.9rem;
+      line-height: 1.65;
       display: none;
       z-index: 10;
       overflow-y: auto;
@@ -156,26 +170,34 @@
       align-items: flex-start;
       justify-content: space-between;
       margin-bottom: 10px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #3d2e14;
     }
 
-    #info h2 { font-size: 0.98rem; color: #7eb3ff; line-height: 1.3; }
+    #info h2 {
+      font-size: 1.05rem;
+      color: #c9a84c;
+      line-height: 1.3;
+      font-style: italic;
+    }
 
     #info-close {
       cursor: pointer;
-      color: #555;
+      color: #3d2e14;
       font-size: 1rem;
       line-height: 1;
       flex-shrink: 0;
       margin-left: 8px;
     }
-    #info-close:hover { color: #ccc; }
+    #info-close:hover { color: #c9a84c; }
 
     .rel-badge {
       display: inline-block;
-      padding: 2px 7px;
-      border-radius: 10px;
-      font-size: 0.75rem;
+      padding: 1px 7px;
+      border-radius: 2px;
+      font-size: 0.78rem;
       font-weight: 600;
+      font-style: normal;
     }
 
     .rel-row {
@@ -197,11 +219,12 @@
       pointer-events: none;
     }
     #empty-state p {
-      font-size: 1rem;
-      color: #555577;
-      border: 1px dashed #2a2a5a;
-      padding: 18px 28px;
-      border-radius: 10px;
+      font-size: 1.05rem;
+      font-style: italic;
+      color: #3d2e14;
+      border: 1px dashed #3d2e14;
+      padding: 18px 32px;
+      border-radius: 4px;
     }
     #empty-state.hidden { display: none; }
 
@@ -210,15 +233,15 @@
       position: absolute;
       bottom: 12px;
       left: 12px;
-      background: rgba(20, 20, 45, 0.92);
-      border: 1px solid #2a2a5a;
-      border-radius: 8px;
-      padding: 8px 12px;
-      font-size: 0.74rem;
+      background: rgba(22, 15, 5, 0.95);
+      border: 1px solid #3d2e14;
+      border-radius: 4px;
+      padding: 7px 12px;
+      font-size: 0.78rem;
       z-index: 10;
       display: flex;
       flex-wrap: wrap;
-      gap: 5px 12px;
+      gap: 4px 8px;
       max-width: 620px;
     }
 
@@ -226,11 +249,23 @@
       display: flex;
       align-items: center;
       gap: 5px;
+      cursor: pointer;
+      padding: 3px 7px;
+      border-radius: 3px;
+      border: 1px solid transparent;
+      transition: background 0.15s, opacity 0.15s, border-color 0.15s;
+      user-select: none;
     }
+    .legend-item:hover { background: rgba(201,168,76,0.08); }
+    .legend-item.active {
+      background: rgba(201,168,76,0.12);
+      border-color: var(--rel-color);
+    }
+    .legend-item.inactive { opacity: 0.28; }
 
     .legend-dot {
-      width: 9px;
-      height: 9px;
+      width: 8px;
+      height: 8px;
       border-radius: 50%;
       flex-shrink: 0;
     }
@@ -345,9 +380,13 @@
   }
 
   // ── Build edge-type legend from what's actually present ──
+  let activeRelFilter = null;
+
   function buildLegend(edges) {
     const seen = new Set();
     legendEl.innerHTML = '';
+    activeRelFilter = null;
+
     edges.forEach(e => {
       const t = e.data.rel_type;
       if (!t || seen.has(t)) return;
@@ -355,9 +394,48 @@
       const color = EDGE_COLORS[t] || '#888';
       const label = t.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
       const item  = document.createElement('div');
-      item.className = 'legend-item';
-      item.innerHTML = `<div class="legend-dot" style="background:${color}"></div><span>${label}</span>`;
+      item.className   = 'legend-item';
+      item.dataset.rel = t;
+      item.style.setProperty('--rel-color', color);
+      item.innerHTML   = `<div class="legend-dot" style="background:${color}"></div><span>${label}</span>`;
+      item.addEventListener('click', () => toggleRelFilter(t));
       legendEl.appendChild(item);
+    });
+  }
+
+  function toggleRelFilter(relType) {
+    if (!cy) return;
+
+    if (activeRelFilter === relType) {
+      // Clear filter
+      activeRelFilter = null;
+      cy.elements().removeClass('type-hidden');
+      legendEl.querySelectorAll('.legend-item').forEach(el => {
+        el.classList.remove('active', 'inactive');
+      });
+      return;
+    }
+
+    activeRelFilter = relType;
+
+    // Classify edges and nodes
+    const visibleEdges  = cy.edges(`[rel_type="${relType}"]`);
+    const visibleNodes  = visibleEdges.connectedNodes();
+
+    cy.edges().addClass('type-hidden');
+    cy.nodes().addClass('type-hidden');
+    visibleEdges.removeClass('type-hidden');
+    visibleNodes.removeClass('type-hidden');
+
+    // Update legend styles
+    legendEl.querySelectorAll('.legend-item').forEach(el => {
+      if (el.dataset.rel === relType) {
+        el.classList.add('active');
+        el.classList.remove('inactive');
+      } else {
+        el.classList.add('inactive');
+        el.classList.remove('active');
+      }
     });
   }
 
@@ -381,7 +459,8 @@
       }
 
       renderGraph(data.nodes, data.edges);
-      statusEl.textContent = `${data.nodes.length} nodes · ${data.edges.length} edges`;
+      const edgeNote = data.edges.length === 0 ? ' · no relationships found, try re-ingesting' : '';
+      statusEl.textContent = `${data.nodes.length} nodes · ${data.edges.length} edges${edgeNote}`;
     } catch (err) {
       statusEl.textContent = `Error: ${err.message}`;
     } finally {
@@ -392,6 +471,7 @@
   // ── Cytoscape render ──
   function renderGraph(nodes, edges) {
     document.getElementById('empty-state').classList.add('hidden');
+    activeRelFilter = null;
     if (cy) cy.destroy();
 
     // Per-relationship-type edge colour rules
@@ -408,26 +488,27 @@
         {
           selector: 'node',
           style: {
-            'background-color':        '#3a6bb5',
-            'border-color':            '#5a8bd5',
-            'border-width':            1.5,
-            'width':                   'data(size)',
-            'height':                  'data(size)',
-            'label':                   'data(label)',
-            'color':                   '#ffffff',
-            'font-size':               12,
-            'text-valign':             'bottom',
-            'text-halign':             'center',
-            'text-margin-y':           4,
-            'text-wrap':               'none',
-            'min-zoomed-font-size':    16,
+            'background-color':     '#5c3d10',
+            'border-color':         '#c9a84c',
+            'border-width':         1.5,
+            'width':                'data(size)',
+            'height':               'data(size)',
+            'label':                'data(label)',
+            'color':                '#f0dfa0',
+            'font-size':            13,
+            'font-family':          'Lora, Georgia, serif',
+            'text-valign':          'bottom',
+            'text-halign':          'center',
+            'text-margin-y':        4,
+            'text-wrap':            'none',
+            'min-zoomed-font-size': 16,
           },
         },
         {
           selector: 'node.highlighted',
           style: {
-            'background-color': '#7eb3ff',
-            'border-color':     '#ffffff',
+            'background-color': '#c9a84c',
+            'border-color':     '#fff8e0',
             'border-width':     3,
           },
         },
@@ -438,13 +519,13 @@
         {
           selector: 'edge',
           style: {
-            'line-color':           '#555577',
-            'target-arrow-color':   '#555577',
-            'target-arrow-shape':   'triangle',
-            'curve-style':          'bezier',
-            'width':                1.5,
-            'arrow-scale':          0.8,
-            'opacity':              0.7,
+            'line-color':         '#4a3010',
+            'target-arrow-color': '#4a3010',
+            'target-arrow-shape': 'triangle',
+            'curve-style':        'bezier',
+            'width':              1.5,
+            'arrow-scale':        0.8,
+            'opacity':            0.75,
           },
         },
         {
@@ -454,6 +535,14 @@
         {
           selector: 'edge.dimmed',
           style: { 'opacity': 0.04 },
+        },
+        {
+          selector: 'edge.type-hidden',
+          style: { 'opacity': 0.04 },
+        },
+        {
+          selector: 'node.type-hidden',
+          style: { 'opacity': 0.06 },
         },
         ...edgeStyleRules,
       ],

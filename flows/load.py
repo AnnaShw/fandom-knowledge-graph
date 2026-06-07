@@ -10,6 +10,16 @@ def get_driver(uri: str, user: str, password: str):
     return GraphDatabase.driver(uri, auth=(user, password))
 
 
+def clear_universe(driver, universe: str) -> None:
+    with driver.session() as session:
+        result = session.run(
+            "MATCH (c:Character {universe: $u}) DETACH DELETE c RETURN count(c) AS deleted",
+            u=universe,
+        )
+        deleted = result.single()["deleted"]
+        print(f"  cleared {deleted} stale nodes for universe '{universe}'")
+
+
 def setup_indexes(driver) -> None:
     with driver.session() as session:
         session.run(

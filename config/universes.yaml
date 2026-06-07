@@ -24,7 +24,7 @@ harrypotter:
 lotr:
   name: "Lord of the Rings"
   api_url: "https://lotr.fandom.com/api.php"
-  character_category: "Characters"
+  character_category: "The Lord of the Rings characters"
 
 dune:
   name: "Dune"
