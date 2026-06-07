@@ -424,11 +424,14 @@
       if (c !== undefined && !seenComm.has(c)) seenComm.set(c, n.data.communityColor);
     });
     seenComm.forEach((color, comm) => {
+      // Find the community name from any node in this community
+      const rep  = nodes.find(n => n.data.community === comm);
+      const name = rep ? rep.data.communityName : `Group ${comm + 1}`;
       const item = document.createElement('div');
-      item.className        = 'legend-item';
+      item.className         = 'legend-item';
       item.dataset.community = comm;
       item.style.setProperty('--rel-color', color);
-      item.innerHTML = `<div class="legend-dot" style="background:${color}"></div><span>Group ${comm + 1}</span>`;
+      item.innerHTML = `<div class="legend-dot" style="background:${color}"></div><span>${name}</span>`;
       item.addEventListener('click', () => toggleCommunityFilter(comm));
       legendEl.appendChild(item);
     });
@@ -689,7 +692,7 @@
       const statsHtml = `
         <div style="margin-bottom:8px;font-size:0.82rem;color:#7a6030;display:flex;gap:12px;flex-wrap:wrap">
           ${rank != null ? `<span>Rank <strong style="color:#c9a84c">#${rank}</strong> of ${total}</span>` : ''}
-          ${community != null ? `<span>Group <strong style="color:${commColor}">${community + 1}</strong></span>` : ''}
+          ${community != null ? `<span style="color:${commColor}">◆ ${node.data('communityName') || 'Group ' + (community + 1)}</span>` : ''}
           <span>Connections <strong style="color:#e8d5a3">${node.data('degree')}</strong></span>
         </div>
       `;

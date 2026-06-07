@@ -61,13 +61,30 @@ def compute_analytics(nodes: list[dict], edges: list[dict]) -> list[dict]:
 
     pagerank = _pagerank(G, alpha=0.85)
 
-    # Community detection on undirected projection with fixed seed for reproducibility
+    MAX_COMMUNITIES = 8   # keep the N largest groups; merge the rest into "Other"
+
     G_u = G.to_undirected()
-    communities = list(nx.community.louvain_communities(G_u, seed=42))
-    community_map: dict[str, int] = {}
-    for idx, members in enumerate(communities):
+    raw = list(nx.community.louvain_communities(G_u, seed=42, resolution=1.0))
+
+    # Sort by size descending; keep top MAX_COMMUNITIES, merge the tail
+    raw.sort(key=len, reverse=True)
+    named   = raw[:MAX_COMMUNITIES]
+    others  = [n for group in raw[MAX_COMMUNITIES:] for n in group]
+
+    community_map:   dict[str, int] = {}
+    community_names: dict[int, str] = {}
+
+    for idx, members in enumerate(named):
         for node_id in members:
             community_map[node_id] = idx
+        top = max(members, key=lambda n: pagerank.get(n, 0))
+        community_names[idx] = top
+
+    other_idx = len(named)
+    for node_id in others:
+        community_map[node_id] = other_idx
+    if others:
+        community_names[other_idx] = "Other characters"
 
     max_pr = max(pagerank.values()) if pagerank else 1.0
     total  = len(nodes)
@@ -83,6 +100,7 @@ def compute_analytics(nodes: list[dict], edges: list[dict]) -> list[dict]:
         node["data"]["rank"]           = rank_map.get(nid, total)
         node["data"]["total"]          = total
         node["data"]["community"]      = comm
+        node["data"]["communityName"]  = community_names.get(comm, f"Group {comm + 1}")
         node["data"]["communityColor"] = COMMUNITY_COLORS[comm % len(COMMUNITY_COLORS)]
         node["data"]["size"]           = 12 + int(28 * pr / max_pr)
 
