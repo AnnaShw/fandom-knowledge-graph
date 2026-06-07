@@ -34,7 +34,7 @@ def index():
 
 @app.get("/api/universes")
 def list_universes():
-    return [{"id": k, "name": v["name"]} for k, v in UNIVERSES.items()]
+    return [{"id": k, "name": v["name"]} for k, v in UNIVERSES.items() if k != "field_aliases"]
 
 
 @app.get("/api/graph")

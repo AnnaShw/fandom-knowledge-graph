@@ -18,12 +18,15 @@ def setup_indexes(driver) -> None:
         )
 
 
-def load_characters(driver, characters: list[dict], universe: str) -> None:
+def load_characters(driver, characters: list[dict], universe: str, known_names: set[str]) -> None:
     """
     Upsert all characters and their relationships into Neo4j.
 
     Each item in `characters` must be:
         {"name": str, "relations": {rel_type: [target_name, ...]}}
+
+    Edges are only created when the target is in `known_names`, preventing
+    races, places, and factions from being created as Character nodes.
     """
     with driver.session() as session:
         # Upsert all character nodes in one query
@@ -38,7 +41,8 @@ def load_characters(driver, characters: list[dict], universe: str) -> None:
         for char in characters:
             for rel_type, targets in char["relations"].items():
                 for target in targets:
-                    by_rel[rel_type].append({"src": char["name"], "tgt": target, "u": universe})
+                    if target in known_names:
+                        by_rel[rel_type].append({"src": char["name"], "tgt": target, "u": universe})
 
         for rel_type, rows in by_rel.items():
             session.run(

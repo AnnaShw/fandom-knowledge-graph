@@ -35,13 +35,30 @@ NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "fandom123")
 
 
-def _load_config(universe_key: str) -> dict:
+def _load_all() -> dict:
     with open(CONFIG_PATH) as f:
-        all_configs = yaml.safe_load(f)
+        return yaml.safe_load(f)
+
+
+def _universe_keys(all_configs: dict) -> list[str]:
+    return [k for k in all_configs if k != "field_aliases"]
+
+
+def _field_mappings(all_configs: dict) -> dict[str, str]:
+    """Invert field_aliases → {field_name: REL_TYPE} for parse_character."""
+    return {
+        field: rel_type
+        for rel_type, fields in all_configs.get("field_aliases", {}).items()
+        for field in fields
+    }
+
+
+def _load_config(universe_key: str) -> tuple[dict, dict[str, str]]:
+    all_configs = _load_all()
+    available = _universe_keys(all_configs)
     if universe_key not in all_configs:
-        available = list(all_configs.keys())
         raise ValueError(f"Unknown universe '{universe_key}'. Available: {available}")
-    return all_configs[universe_key]
+    return all_configs[universe_key], _field_mappings(all_configs)
 
 
 @task(retries=3, retry_delay_seconds=10)
@@ -127,7 +144,7 @@ def fetch_wikitext_batch(api_url: str, titles: list[str]) -> dict[str, str]:
 @flow(name="fandom-ingest", log_prints=True)
 def ingest_universe(universe_key: str = "harrypotter", limit: int = 200):
     logger = get_run_logger()
-    config = _load_config(universe_key)
+    config, field_mappings = _load_config(universe_key)
     logger.info(f"Ingesting: {config['name']}  |  limit={limit}")
 
     # Step 1: discover character pages (template-based or category-based)
@@ -145,16 +162,17 @@ def ingest_universe(universe_key: str = "harrypotter", limit: int = 200):
         for title in batch:
             wikitext = wikitexts.get(title, "")
             if wikitext:
-                relations = parse_character(wikitext, config["infobox_fields"])
+                relations = parse_character(wikitext, field_mappings)
                 characters.append({"name": title, "relations": relations})
         logger.info(f"  parsed {min(i + BATCH_SIZE, len(titles))}/{len(titles)} ...")
         time.sleep(0.5)  # one polite pause per batch, not per page
 
-    # Step 3: load into Neo4j
+    # Step 3: load into Neo4j (only edges between known characters)
+    known_names = {c["name"] for c in characters}
     driver = get_driver(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)
     try:
         setup_indexes(driver)
-        load_characters(driver, characters, universe_key)
+        load_characters(driver, characters, universe_key, known_names)
     finally:
         driver.close()
 
@@ -165,10 +183,9 @@ def ingest_universe(universe_key: str = "harrypotter", limit: int = 200):
 
 @flow(name="fandom-ingest-all", log_prints=True)
 def ingest_all_universes(limit: int = 200):
-    with open(CONFIG_PATH) as f:
-        all_configs = yaml.safe_load(f)
+    all_configs = _load_all()
     results = {}
-    for universe_key in all_configs:
+    for universe_key in _universe_keys(all_configs):
         results[universe_key] = ingest_universe(universe_key=universe_key, limit=limit)
     return results
 

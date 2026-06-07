@@ -1,35 +1,32 @@
-# Add a new universe by adding a new top-level key.
-# infobox_fields: maps wiki infobox field name → Neo4j relationship type.
+# field_aliases: global mapping of relationship type → all field names any wiki might use.
+# Applied to every universe automatically — no per-universe field config needed.
+# Add new aliases here when a new wiki uses an unexpected field name.
+field_aliases:
+  FAMILY_OF:          [family, parentage, relatives, kin]
+  PARENT_OF:          [parents, children, offspring, sons, daughters]
+  SIBLING_OF:         [siblings, brothers, sisters]
+  MARRIED_TO:         [spouse, spouses, wife, husband, consort]
+  ROMANTIC_WITH:      [romances, romance, partner, lover]
+  MEMBER_OF:          [affiliation, affiliations, house, culture, loyalty, allegiance, realms, faction, organization]
+  BELONGS_TO_SPECIES: [species, race]
+  FRIEND_OF:          [friends, allies, ally, companions]
+  ENEMY_OF:           [enemies, rivals, rival, nemesis]
+
+# Add a new universe by adding a new top-level key (besides field_aliases).
+# character_template: fetch pages that embed this infobox template (more precise).
+# character_category: fetch pages in this wiki category (fallback).
 
 harrypotter:
   name: "Harry Potter"
   api_url: "https://harrypotter.fandom.com/api.php"
-  character_template: "Individual infobox"   # pages that embed this template = character pages
-  infobox_fields:
-    family: FAMILY_OF
-    parents: PARENT_OF
-    siblings: SIBLING_OF
-    romances: ROMANTIC_WITH
-    affiliation: MEMBER_OF
-    house: MEMBER_OF
-    species: BELONGS_TO_SPECIES
+  character_template: "Individual infobox"
 
 lotr:
   name: "Lord of the Rings"
   api_url: "https://lotr.fandom.com/api.php"
   character_category: "Characters"
-  infobox_fields:
-    family: FAMILY_OF
-    siblings: SIBLING_OF
-    spouse: MARRIED_TO
-    affiliation: MEMBER_OF
-    race: BELONGS_TO_RACE
 
 dune:
   name: "Dune"
   api_url: "https://dune.fandom.com/api.php"
   character_category: "Characters"
-  infobox_fields:
-    family: FAMILY_OF
-    affiliation: MEMBER_OF
-    homeworld: FROM_HOMEWORLD
