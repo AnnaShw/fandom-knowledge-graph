@@ -6,6 +6,7 @@ Usage (from project root):
     python flows/ingest.py harrypotter 500        # Harry Potter, 500 chars
     python flows/ingest.py lotr 300               # Lord of the Rings, 300 chars
 """
+import json
 import os
 import sys
 import time
@@ -28,6 +29,7 @@ BATCH_SIZE = 50  # MediaWiki API max titles per request
 load_dotenv()
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "universes.yaml"
+CACHE_DIR   = Path(__file__).parent.parent / "cache"
 HEADERS = {"User-Agent": "fandom-knowledge-graph/1.0 (educational project)"}
 
 NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
@@ -142,8 +144,52 @@ def fetch_wikitext_batch(api_url: str, titles: list[str]) -> dict[str, str]:
     return result
 
 
+def export_cache(universe_key: str, characters: list[dict], known_names: set[str]) -> None:
+    """Build graph JSON from in-memory data and write to cache/<universe>.json."""
+    from collections import defaultdict
+
+    degree: dict[str, int] = defaultdict(int)
+    edges: list[dict] = []
+    seen: set[tuple] = set()
+
+    for char in characters:
+        for rel_type, targets in char["relations"].items():
+            for target in targets:
+                if target in known_names:
+                    degree[char["name"]] += 1
+                    key = (char["name"], rel_type, target)
+                    if key not in seen:
+                        seen.add(key)
+                        edges.append({
+                            "data": {
+                                "source":   char["name"],
+                                "target":   target,
+                                "rel_type": rel_type,
+                                "label":    rel_type.replace("_", " ").title(),
+                            }
+                        })
+
+    max_degree = max(degree.values()) if degree else 1
+    nodes = [
+        {
+            "data": {
+                "id":     c["name"],
+                "label":  c["name"],
+                "degree": degree[c["name"]],
+                "size":   10 + int(30 * degree[c["name"]] / max_degree),
+            }
+        }
+        for c in characters
+    ]
+
+    CACHE_DIR.mkdir(exist_ok=True)
+    out = CACHE_DIR / f"{universe_key}.json"
+    out.write_text(json.dumps({"nodes": nodes, "edges": edges}, ensure_ascii=False), encoding="utf-8")
+    print(f"  cache → {out}  ({len(nodes)} nodes, {len(edges)} edges)")
+
+
 @flow(name="fandom-ingest", log_prints=True)
-def ingest_universe(universe_key: str = "harrypotter", limit: int = 200, clear: bool = False):
+def ingest_universe(universe_key: str = "harrypotter", limit: int = 200, clear: bool = False, cache_only: bool = False):
     logger = get_run_logger()
     config, field_mappings = _load_config(universe_key)
     logger.info(f"Ingesting: {config['name']}  |  limit={limit}  |  clear={clear}")
@@ -175,14 +221,18 @@ def ingest_universe(universe_key: str = "harrypotter", limit: int = 200, clear: 
         logger.info(f"  parsed {min(i + BATCH_SIZE, len(titles))}/{len(titles)} ...")
         time.sleep(0.5)  # one polite pause per batch, not per page
 
-    # Step 3: load into Neo4j (only edges between known characters)
+    # Step 3: load into Neo4j (skipped in --cache-only mode)
     known_names = {c["name"] for c in characters}
-    driver = get_driver(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)
-    try:
-        setup_indexes(driver)
-        load_characters(driver, characters, universe_key, known_names)
-    finally:
-        driver.close()
+    if not cache_only:
+        driver = get_driver(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)
+        try:
+            setup_indexes(driver)
+            load_characters(driver, characters, universe_key, known_names)
+        finally:
+            driver.close()
+
+    # Step 4: write JSON cache (always)
+    export_cache(universe_key, characters, known_names)
 
     rel_count = sum(len(v) for c in characters for v in c["relations"].values())
     logger.info(f"Done! {len(characters)} characters, {rel_count} relationships loaded.")
@@ -190,19 +240,20 @@ def ingest_universe(universe_key: str = "harrypotter", limit: int = 200, clear: 
 
 
 @flow(name="fandom-ingest-all", log_prints=True)
-def ingest_all_universes(limit: int = 200, clear: bool = False):
+def ingest_all_universes(limit: int = 200, clear: bool = False, cache_only: bool = False):
     all_configs = _load_all()
     results = {}
     for universe_key in _universe_keys(all_configs):
-        results[universe_key] = ingest_universe(universe_key=universe_key, limit=limit, clear=clear)
+        results[universe_key] = ingest_universe(universe_key=universe_key, limit=limit, clear=clear, cache_only=cache_only)
     return results
 
 
 if __name__ == "__main__":
-    universe = sys.argv[1] if len(sys.argv) > 1 else "harrypotter"
-    limit    = int(sys.argv[2]) if len(sys.argv) > 2 else 200
-    clear    = "--clear" in sys.argv
+    universe    = sys.argv[1] if len(sys.argv) > 1 else "harrypotter"
+    limit       = int(sys.argv[2]) if len(sys.argv) > 2 else 200
+    clear       = "--clear"      in sys.argv
+    cache_only  = "--cache-only" in sys.argv
     if universe == "all":
-        ingest_all_universes(limit=limit, clear=clear)
+        ingest_all_universes(limit=limit, clear=clear, cache_only=cache_only)
     else:
-        ingest_universe(universe_key=universe, limit=limit, clear=clear)
+        ingest_universe(universe_key=universe, limit=limit, clear=clear, cache_only=cache_only)

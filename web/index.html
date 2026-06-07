@@ -346,6 +346,7 @@
   const legendEl       = document.getElementById('legend');
 
   let cy = null;
+  let currentUniverse = null;
 
   maxNodesSlider.addEventListener('input', () => {
     nodeCountLabel.textContent = maxNodesSlider.value;
@@ -443,6 +444,7 @@
   async function loadGraph() {
     const universe = universeSelect.value;
     if (!universe) return;
+    currentUniverse = universe;
     const maxNodes = parseInt(maxNodesSlider.value);
 
     loadingEl.classList.add('visible');
@@ -488,28 +490,32 @@
         {
           selector: 'node',
           style: {
-            'background-color':     '#5c3d10',
-            'border-color':         '#c9a84c',
-            'border-width':         1.5,
-            'width':                'data(size)',
-            'height':               'data(size)',
-            'label':                'data(label)',
-            'color':                '#f0dfa0',
-            'font-size':            13,
-            'font-family':          'Lora, Georgia, serif',
-            'text-valign':          'bottom',
-            'text-halign':          'center',
-            'text-margin-y':        4,
-            'text-wrap':            'none',
-            'min-zoomed-font-size': 16,
+            'background-color':        '#5c3d10',
+            'border-color':            '#c9a84c',
+            'border-width':            1.5,
+            'width':                   'data(size)',
+            'height':                  'data(size)',
+            'label':                   'data(label)',
+            'color':                   '#f0dfa0',
+            'font-size':               13,
+            'font-family':             'Lora, Georgia, serif',
+            'text-valign':             'bottom',
+            'text-halign':             'center',
+            'text-margin-y':           4,
+            'text-wrap':               'none',
+            'min-zoomed-font-size':    10,
+            'text-background-color':   '#080502',
+            'text-background-opacity': 0.85,
+            'text-background-padding': '4px',
           },
         },
         {
           selector: 'node.highlighted',
           style: {
-            'background-color': '#c9a84c',
-            'border-color':     '#fff8e0',
-            'border-width':     3,
+            'background-color':     '#c9a84c',
+            'border-color':         '#fff8e0',
+            'border-width':         3,
+            'min-zoomed-font-size': 0,
           },
         },
         {
@@ -550,21 +556,27 @@
       layout: {
         name:              'cose',
         animate:           true,
-        animationDuration: 800,
-        nodeRepulsion:     800000,
-        nodeOverlap:       20,
-        idealEdgeLength:   280,
-        edgeElasticity:    100,
-        nestingFactor:     5,
-        gravity:           8,
-        numIter:           nodes.length > 150 ? 1500 : 3000,
-        initialTemp:       500,
+        animationDuration: 1000,
+        nodeRepulsion:     950000,
+        nodeOverlap:       40,
+        idealEdgeLength:   240,
+        edgeElasticity:    80,
+        nestingFactor:     1,
+        gravity:           3,
+        numIter:           nodes.length > 150 ? 2000 : 3500,
+        initialTemp:       800,
         coolingFactor:     0.95,
         minTemp:           1.0,
+        boundingBox:       { x1: 0, y1: 0,
+                             w: document.getElementById('cy').clientWidth,
+                             h: document.getElementById('cy').clientHeight },
+        fit:               true,
+        padding:           80,
+        randomize:         true,
       },
     });
 
-    // ── Node click: highlight neighbourhood ──
+    // ── Node click: highlight neighbourhood + fetch bio ──
     cy.on('tap', 'node', function(e) {
       const node      = e.target;
       const connected = node.connectedEdges();
@@ -575,7 +587,8 @@
       neighbours.removeClass('dimmed');
       connected.removeClass('dimmed').addClass('highlighted');
 
-      infoTitleEl.textContent = node.data('label');
+      const label = node.data('label');
+      infoTitleEl.textContent = label;
 
       const rows = connected.map(edge => {
         const rel   = edge.data('rel_type') || '';
@@ -592,11 +605,38 @@
         </div>`;
       }).join('');
 
-      infoBodyEl.innerHTML = `
-        <div style="margin-bottom:8px;color:#aaa">Connections: <strong style="color:#e0e0e0">${node.data('degree')}</strong></div>
+      const connectionsHtml = `
+        <div style="margin-bottom:8px;color:#7a6030">Connections: <strong style="color:#e8d5a3">${node.data('degree')}</strong></div>
         ${rows || '<em style="color:#555">No relationships shown</em>'}
       `;
+
+      // Show panel immediately with a bio placeholder
+      infoBodyEl.innerHTML = `
+        <div id="bio-section" style="margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid #3d2e14">
+          <em style="color:#3d2e14;font-size:0.85rem">Loading…</em>
+        </div>
+        ${connectionsHtml}
+      `;
       infoEl.classList.add('visible');
+
+      // Fetch bio asynchronously
+      if (currentUniverse) {
+        fetch(`/api/character?universe=${encodeURIComponent(currentUniverse)}&name=${encodeURIComponent(label)}`)
+          .then(r => r.json())
+          .then(data => {
+            const bioEl = document.getElementById('bio-section');
+            if (!bioEl) return;
+            if (data.summary) {
+              bioEl.innerHTML = `<p style="font-size:0.85rem;line-height:1.6;color:#c8b47a;font-style:italic">${data.summary}</p>`;
+            } else {
+              bioEl.remove();
+            }
+          })
+          .catch(() => {
+            const bioEl = document.getElementById('bio-section');
+            if (bioEl) bioEl.remove();
+          });
+      }
     });
 
     // ── Edge click ──

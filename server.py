@@ -5,9 +5,11 @@ Usage:
     uvicorn server:app --reload
     # then open http://localhost:8000
 """
+import json
 import os
 import pathlib
 
+import requests as http_requests
 import yaml
 from dotenv import load_dotenv
 from fastapi import FastAPI, Query
@@ -20,7 +22,8 @@ NEO4J_URI      = os.getenv("NEO4J_URI",      "bolt://localhost:7687")
 NEO4J_USER     = os.getenv("NEO4J_USER",     "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "fandom123")
 
-_root = pathlib.Path(__file__).parent
+_root      = pathlib.Path(__file__).parent
+_cache_dir = _root / "cache"
 with (_root / "config" / "universes.yaml").open() as f:
     UNIVERSES: dict = yaml.safe_load(f)
 
@@ -42,6 +45,16 @@ def get_graph(
     universe: str = Query("harrypotter"),
     max_nodes: int = Query(300, ge=10, le=2000),
 ):
+    # ── Cache path (written by ingest.py) ──
+    cache_file = _cache_dir / f"{universe}.json"
+    if cache_file.exists():
+        data  = json.loads(cache_file.read_text(encoding="utf-8"))
+        nodes = sorted(data["nodes"], key=lambda n: n["data"]["degree"], reverse=True)[:max_nodes]
+        ids   = {n["data"]["id"] for n in nodes}
+        edges = [e for e in data["edges"] if e["data"]["source"] in ids and e["data"]["target"] in ids]
+        return {"nodes": nodes, "edges": edges}
+
+    # ── Fallback: live Neo4j query (local dev without cache) ──
     driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
     try:
         with driver.session() as session:
@@ -99,3 +112,33 @@ def get_graph(
         driver.close()
 
     return {"nodes": nodes, "edges": edges}
+
+
+_WIKI_HEADERS = {"User-Agent": "fandom-knowledge-graph/1.0 (educational project)"}
+
+
+@app.get("/api/character")
+def get_character(universe: str = Query("harrypotter"), name: str = Query(...)):
+    config = UNIVERSES.get(universe)
+    if not config:
+        return {"summary": ""}
+    try:
+        resp = http_requests.get(
+            config["api_url"],
+            params={
+                "action": "query",
+                "titles": name,
+                "prop": "extracts",
+                "exintro": True,
+                "explaintext": True,
+                "exsentences": 3,
+                "format": "json",
+            },
+            headers=_WIKI_HEADERS,
+            timeout=10,
+        )
+        pages = resp.json().get("query", {}).get("pages", {})
+        page = next(iter(pages.values()), {})
+        return {"summary": page.get("extract", "").strip()}
+    except Exception:
+        return {"summary": ""}
