@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fandom Knowledge Graph</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.29.0/cytoscape.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #0f0f23;
+      color: #e0e0e0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Controls bar ── */
+    #controls {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 10px 20px;
+      background: #1a1a3a;
+      border-bottom: 1px solid #2a2a5a;
+      flex-shrink: 0;
+    }
+
+    #controls h1 {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: #7eb3ff;
+      white-space: nowrap;
+      letter-spacing: 0.5px;
+    }
+
+    .control-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .control-group label {
+      font-size: 0.82rem;
+      color: #aaa;
+      white-space: nowrap;
+    }
+
+    select, input[type="text"] {
+      background: #2a2a4a;
+      color: #e0e0e0;
+      border: 1px solid #3a3a6a;
+      border-radius: 6px;
+      padding: 5px 10px;
+      font-size: 0.88rem;
+      cursor: pointer;
+    }
+
+    select:focus, input[type="text"]:focus { outline: 2px solid #7eb3ff; }
+
+    input[type="range"] {
+      width: 110px;
+      accent-color: #7eb3ff;
+      cursor: pointer;
+    }
+
+    #node-count-label {
+      font-size: 0.82rem;
+      color: #aaa;
+      min-width: 52px;
+    }
+
+    #search-input { width: 170px; }
+    #search-input::placeholder { color: #555; }
+
+    button#load-btn {
+      background: #2d4f9e;
+      color: #e0e0e0;
+      border: 1px solid #4a6abb;
+      border-radius: 6px;
+      padding: 5px 16px;
+      font-size: 0.88rem;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    button#load-btn:hover { background: #3a5fc0; }
+    button#load-btn:active { background: #2a4090; }
+
+    #status {
+      margin-left: auto;
+      font-size: 0.78rem;
+      color: #666;
+      white-space: nowrap;
+    }
+
+    /* ── Main canvas area ── */
+    #main {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #cy { width: 100%; height: 100%; }
+
+    /* ── Loading overlay ── */
+    #loading {
+      display: none;
+      position: absolute;
+      inset: 0;
+      background: rgba(15, 15, 35, 0.82);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 14px;
+    }
+    #loading.visible { display: flex; }
+
+    .spinner {
+      width: 38px;
+      height: 38px;
+      border: 4px solid #2a2a5a;
+      border-top-color: #7eb3ff;
+      border-radius: 50%;
+      animation: spin 0.75s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #loading span { font-size: 0.9rem; color: #aaa; }
+
+    /* ── Info panel ── */
+    #info {
+      position: absolute;
+      top: 14px;
+      right: 14px;
+      width: 250px;
+      max-height: calc(100% - 28px);
+      background: #1a1a3a;
+      border: 1px solid #2a2a5a;
+      border-radius: 10px;
+      padding: 14px 16px;
+      font-size: 0.83rem;
+      line-height: 1.6;
+      display: none;
+      z-index: 10;
+      overflow-y: auto;
+    }
+    #info.visible { display: block; }
+
+    #info-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+
+    #info h2 { font-size: 0.98rem; color: #7eb3ff; line-height: 1.3; }
+
+    #info-close {
+      cursor: pointer;
+      color: #555;
+      font-size: 1rem;
+      line-height: 1;
+      flex-shrink: 0;
+      margin-left: 8px;
+    }
+    #info-close:hover { color: #ccc; }
+
+    .rel-badge {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 10px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+
+    .rel-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin: 4px 0;
+      flex-wrap: wrap;
+    }
+
+    /* ── Empty state ── */
+    #empty-state {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 5;
+      pointer-events: none;
+    }
+    #empty-state p {
+      font-size: 1rem;
+      color: #555577;
+      border: 1px dashed #2a2a5a;
+      padding: 18px 28px;
+      border-radius: 10px;
+    }
+    #empty-state.hidden { display: none; }
+
+    /* ── Legend ── */
+    #legend {
+      position: absolute;
+      bottom: 12px;
+      left: 12px;
+      background: rgba(20, 20, 45, 0.92);
+      border: 1px solid #2a2a5a;
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 0.74rem;
+      z-index: 10;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px 12px;
+      max-width: 620px;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .legend-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+  </style>
+</head>
+<body>
+
+<div id="controls">
+  <h1>Fandom Knowledge Graph</h1>
+
+  <div class="control-group">
+    <label for="universe-select">Universe</label>
+    <select id="universe-select"></select>
+  </div>
+
+  <div class="control-group">
+    <label for="max-nodes">Max nodes</label>
+    <input type="range" id="max-nodes" min="20" max="500" value="200" step="10">
+    <span id="node-count-label">200</span>
+  </div>
+
+  <div class="control-group">
+    <input type="text" id="search-input" placeholder="Search character…">
+  </div>
+
+  <button id="load-btn">Load</button>
+
+  <span id="status"></span>
+</div>
+
+<div id="main">
+  <div id="empty-state">
+    <p>Select a universe from the dropdown above to visualize the graph.</p>
+  </div>
+  <div id="cy"></div>
+
+  <div id="loading">
+    <div class="spinner"></div>
+    <span>Building graph…</span>
+  </div>
+
+  <div id="info">
+    <div id="info-header">
+      <h2 id="info-title"></h2>
+      <span id="info-close">✕</span>
+    </div>
+    <div id="info-body"></div>
+  </div>
+
+  <div id="legend"></div>
+</div>
+
+<script>
+  const EDGE_COLORS = {
+    FAMILY_OF:          '#e67e22',
+    PARENT_OF:          '#e74c3c',
+    SIBLING_OF:         '#f39c12',
+    ROMANTIC_WITH:      '#e91e63',
+    MARRIED_TO:         '#e91e63',
+    FRIEND_OF:          '#2ecc71',
+    ENEMY_OF:           '#9b59b6',
+    MEMBER_OF:          '#3498db',
+    BELONGS_TO_SPECIES: '#1abc9c',
+    BELONGS_TO_RACE:    '#1abc9c',
+    FROM_HOMEWORLD:     '#00bcd4',
+  };
+
+  const universeSelect = document.getElementById('universe-select');
+  const maxNodesSlider = document.getElementById('max-nodes');
+  const nodeCountLabel = document.getElementById('node-count-label');
+  const searchInput    = document.getElementById('search-input');
+  const loadBtn        = document.getElementById('load-btn');
+  const statusEl       = document.getElementById('status');
+  const loadingEl      = document.getElementById('loading');
+  const infoEl         = document.getElementById('info');
+  const infoTitleEl    = document.getElementById('info-title');
+  const infoBodyEl     = document.getElementById('info-body');
+  const legendEl       = document.getElementById('legend');
+
+  let cy = null;
+
+  maxNodesSlider.addEventListener('input', () => {
+    nodeCountLabel.textContent = maxNodesSlider.value;
+  });
+
+  document.getElementById('info-close').addEventListener('click', clearHighlight);
+
+  function clearHighlight() {
+    infoEl.classList.remove('visible');
+    if (cy) cy.elements().removeClass('highlighted dimmed');
+  }
+
+  // ── Populate universe dropdown ──
+  async function loadUniverses() {
+    const res  = await fetch('/api/universes');
+    const list = await res.json();
+
+    // placeholder option
+    const placeholder = document.createElement('option');
+    placeholder.value    = '';
+    placeholder.disabled = true;
+    placeholder.selected = true;
+    placeholder.textContent = 'Choose a universe…';
+    universeSelect.appendChild(placeholder);
+
+    list.forEach(u => {
+      const opt = document.createElement('option');
+      opt.value       = u.id;
+      opt.textContent = u.name;
+      universeSelect.appendChild(opt);
+    });
+  }
+
+  // ── Build edge-type legend from what's actually present ──
+  function buildLegend(edges) {
+    const seen = new Set();
+    legendEl.innerHTML = '';
+    edges.forEach(e => {
+      const t = e.data.rel_type;
+      if (!t || seen.has(t)) return;
+      seen.add(t);
+      const color = EDGE_COLORS[t] || '#888';
+      const label = t.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      const item  = document.createElement('div');
+      item.className = 'legend-item';
+      item.innerHTML = `<div class="legend-dot" style="background:${color}"></div><span>${label}</span>`;
+      legendEl.appendChild(item);
+    });
+  }
+
+  // ── Fetch graph data and render ──
+  async function loadGraph() {
+    const universe = universeSelect.value;
+    if (!universe) return;
+    const maxNodes = parseInt(maxNodesSlider.value);
+
+    loadingEl.classList.add('visible');
+    clearHighlight();
+    statusEl.textContent = '';
+
+    try {
+      const res  = await fetch(`/api/graph?universe=${universe}&max_nodes=${maxNodes}`);
+      const data = await res.json();
+
+      if (!data.nodes.length) {
+        statusEl.textContent = `No data for "${universe}" — run: py flows/ingest.py ${universe}`;
+        return;
+      }
+
+      renderGraph(data.nodes, data.edges);
+      statusEl.textContent = `${data.nodes.length} nodes · ${data.edges.length} edges`;
+    } catch (err) {
+      statusEl.textContent = `Error: ${err.message}`;
+    } finally {
+      loadingEl.classList.remove('visible');
+    }
+  }
+
+  // ── Cytoscape render ──
+  function renderGraph(nodes, edges) {
+    document.getElementById('empty-state').classList.add('hidden');
+    if (cy) cy.destroy();
+
+    // Per-relationship-type edge colour rules
+    const edgeStyleRules = Object.entries(EDGE_COLORS).map(([type, color]) => ({
+      selector: `edge[rel_type="${type}"]`,
+      style: { 'line-color': color, 'target-arrow-color': color },
+    }));
+
+    cy = cytoscape({
+      container: document.getElementById('cy'),
+      elements:  [...nodes, ...edges],
+
+      style: [
+        {
+          selector: 'node',
+          style: {
+            'background-color':        '#3a6bb5',
+            'border-color':            '#5a8bd5',
+            'border-width':            1.5,
+            'width':                   'data(size)',
+            'height':                  'data(size)',
+            'label':                   'data(label)',
+            'color':                   '#ffffff',
+            'font-size':               12,
+            'text-valign':             'bottom',
+            'text-halign':             'center',
+            'text-margin-y':           4,
+            'text-wrap':               'none',
+            'min-zoomed-font-size':    16,
+          },
+        },
+        {
+          selector: 'node.highlighted',
+          style: {
+            'background-color': '#7eb3ff',
+            'border-color':     '#ffffff',
+            'border-width':     3,
+          },
+        },
+        {
+          selector: 'node.dimmed',
+          style: { 'opacity': 0.15 },
+        },
+        {
+          selector: 'edge',
+          style: {
+            'line-color':           '#555577',
+            'target-arrow-color':   '#555577',
+            'target-arrow-shape':   'triangle',
+            'curve-style':          'bezier',
+            'width':                1.5,
+            'arrow-scale':          0.8,
+            'opacity':              0.7,
+          },
+        },
+        {
+          selector: 'edge.highlighted',
+          style: { 'opacity': 1, 'width': 2.5 },
+        },
+        {
+          selector: 'edge.dimmed',
+          style: { 'opacity': 0.04 },
+        },
+        ...edgeStyleRules,
+      ],
+
+      layout: {
+        name:              'cose',
+        animate:           true,
+        animationDuration: 800,
+        nodeRepulsion:     800000,
+        nodeOverlap:       20,
+        idealEdgeLength:   280,
+        edgeElasticity:    100,
+        nestingFactor:     5,
+        gravity:           8,
+        numIter:           nodes.length > 150 ? 1500 : 3000,
+        initialTemp:       500,
+        coolingFactor:     0.95,
+        minTemp:           1.0,
+      },
+    });
+
+    // ── Node click: highlight neighbourhood ──
+    cy.on('tap', 'node', function(e) {
+      const node      = e.target;
+      const connected = node.connectedEdges();
+      const neighbours= connected.connectedNodes();
+
+      cy.elements().addClass('dimmed');
+      node.removeClass('dimmed').addClass('highlighted');
+      neighbours.removeClass('dimmed');
+      connected.removeClass('dimmed').addClass('highlighted');
+
+      infoTitleEl.textContent = node.data('label');
+
+      const rows = connected.map(edge => {
+        const rel   = edge.data('rel_type') || '';
+        const other = edge.source().id() === node.id()
+          ? edge.target().data('label')
+          : edge.source().data('label');
+        const dir   = edge.source().id() === node.id() ? '→' : '←';
+        const color = EDGE_COLORS[rel] || '#888';
+        return `<div class="rel-row">
+          <span class="rel-badge" style="background:${color}22;border:1px solid ${color};color:${color}">
+            ${rel.replace(/_/g, ' ')}
+          </span>
+          <span>${dir} <strong>${other}</strong></span>
+        </div>`;
+      }).join('');
+
+      infoBodyEl.innerHTML = `
+        <div style="margin-bottom:8px;color:#aaa">Connections: <strong style="color:#e0e0e0">${node.data('degree')}</strong></div>
+        ${rows || '<em style="color:#555">No relationships shown</em>'}
+      `;
+      infoEl.classList.add('visible');
+    });
+
+    // ── Edge click ──
+    cy.on('tap', 'edge', function(e) {
+      const edge  = e.target;
+      const rel   = edge.data('rel_type') || '';
+      const color = EDGE_COLORS[rel] || '#888';
+
+      cy.elements().addClass('dimmed');
+      edge.removeClass('dimmed').addClass('highlighted');
+      edge.source().removeClass('dimmed').addClass('highlighted');
+      edge.target().removeClass('dimmed').addClass('highlighted');
+
+      infoTitleEl.textContent = rel.replace(/_/g, ' ');
+      infoBodyEl.innerHTML = `
+        <div style="margin-bottom:8px">
+          <span class="rel-badge" style="background:${color}22;border:1px solid ${color};color:${color}">
+            ${rel.replace(/_/g, ' ')}
+          </span>
+        </div>
+        <div><strong>${edge.source().data('label')}</strong></div>
+        <div style="margin:4px 0;color:#666">↓</div>
+        <div><strong>${edge.target().data('label')}</strong></div>
+      `;
+      infoEl.classList.add('visible');
+    });
+
+    // ── Tap on background: clear ──
+    cy.on('tap', function(e) {
+      if (e.target === cy) clearHighlight();
+    });
+
+    buildLegend(edges);
+  }
+
+  // ── Search: highlight matching nodes ──
+  searchInput.addEventListener('input', function() {
+    if (!cy) return;
+    const q = this.value.trim().toLowerCase();
+    if (!q) { clearHighlight(); return; }
+
+    const matched = cy.nodes().filter(n =>
+      n.data('label').toLowerCase().includes(q)
+    );
+    if (!matched.length) return;
+
+    cy.elements().addClass('dimmed');
+    matched.removeClass('dimmed').addClass('highlighted');
+    matched.connectedEdges().removeClass('dimmed').addClass('highlighted');
+    matched.neighborhood().nodes().removeClass('dimmed');
+
+    if (matched.length === 1) {
+      cy.animate({ center: { eles: matched }, zoom: 1.8 }, { duration: 350 });
+    } else {
+      cy.fit(matched, 60);
+    }
+  });
+
+  universeSelect.addEventListener('change', loadGraph);
+  loadBtn.addEventListener('click', loadGraph);
+
+  loadUniverses();
+</script>
+</body>
+</html>

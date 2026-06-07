@@ -1,6 +1,8 @@
 """
 Neo4j loading logic — no Prefect dependencies, fully testable in isolation.
 """
+from collections import defaultdict
+
 from neo4j import GraphDatabase
 
 
@@ -16,23 +18,6 @@ def setup_indexes(driver) -> None:
         )
 
 
-def _upsert_character(tx, name: str, universe: str) -> None:
-    tx.run(
-        "MERGE (c:Character {name: $name, universe: $universe})",
-        name=name, universe=universe,
-    )
-
-
-def _upsert_relationship(tx, source: str, target: str, rel_type: str, universe: str) -> None:
-    # rel_type comes from universes.yaml — controlled input, safe to interpolate
-    query = (
-        f"MERGE (a:Character {{name: $src, universe: $u}}) "
-        f"MERGE (b:Character {{name: $tgt, universe: $u}}) "
-        f"MERGE (a)-[:{rel_type}]->(b)"
-    )
-    tx.run(query, src=source, tgt=target, u=universe)
-
-
 def load_characters(driver, characters: list[dict], universe: str) -> None:
     """
     Upsert all characters and their relationships into Neo4j.
@@ -41,10 +26,25 @@ def load_characters(driver, characters: list[dict], universe: str) -> None:
         {"name": str, "relations": {rel_type: [target_name, ...]}}
     """
     with driver.session() as session:
+        # Upsert all character nodes in one query
+        session.run(
+            "UNWIND $chars AS c MERGE (:Character {name: c.name, universe: c.universe})",
+            chars=[{"name": c["name"], "universe": universe} for c in characters],
+        )
+
+        # Group relationships by type then upsert each group in one query.
+        # rel_type comes from universes.yaml — controlled input, safe to interpolate.
+        by_rel: dict[str, list] = defaultdict(list)
         for char in characters:
-            session.execute_write(_upsert_character, char["name"], universe)
             for rel_type, targets in char["relations"].items():
                 for target in targets:
-                    session.execute_write(
-                        _upsert_relationship, char["name"], target, rel_type, universe
-                    )
+                    by_rel[rel_type].append({"src": char["name"], "tgt": target, "u": universe})
+
+        for rel_type, rows in by_rel.items():
+            session.run(
+                f"UNWIND $rows AS r "
+                f"MERGE (a:Character {{name: r.src, universe: r.u}}) "
+                f"MERGE (b:Character {{name: r.tgt, universe: r.u}}) "
+                f"MERGE (a)-[:{rel_type}]->(b)",
+                rows=rows,
+            )
