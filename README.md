@@ -19,8 +19,9 @@ Fandom Wiki API
                                                    │
                                                    ▼
                                          ┌──────────────────┐
-                                         │  Visualization   │
-                                         │  (Pyvis → HTML)  │
+                                         │  Web UI          │
+                                         │  (FastAPI +      │
+                                         │   Cytoscape.js)  │
                                          └──────────────────┘
 ```
 
@@ -34,7 +35,7 @@ Fandom Wiki API
 | Data source | [MediaWiki API](https://www.mediawiki.org/wiki/API:Main_page) | Official, free, no scraping needed |
 | Parsing | `mwparserfromhell` | Parses wiki markup and infobox templates |
 | Database | Neo4j (Docker) | Native graph DB, free community edition |
-| Visualization | [Pyvis](https://pyvis.readthedocs.io/) | Interactive HTML graph, opens in the browser |
+| Visualization | [FastAPI](https://fastapi.tiangolo.com/) + [Cytoscape.js](https://js.cytoscape.org/) | Live web UI — universe picker, search, click-to-explore |
 | Language | Python 3.11+ | |
 
 ---
@@ -71,7 +72,7 @@ Each field becomes a typed edge in the graph: `PARENT_OF`, `MEMBER_OF`, `BELONGS
 ```bash
 git clone https://github.com/your-repo/fandom-knowledge-graph.git
 cd fandom-knowledge-graph
-pip install -r requirements.txt
+py -m pip install -r requirements.txt
 ```
 
 ### 2. Copy env config
@@ -80,27 +81,26 @@ pip install -r requirements.txt
 cp .env.example .env   # credentials are already filled in for local Neo4j
 ```
 
-### 3. Start Neo4j
+### 3. Run the ingestion pipeline (first time only)
+
+Requires Docker to be running.
 
 ```bash
-docker compose up -d
-# Neo4j browser UI: http://localhost:7474
+py flows/ingest.py all               # all universes, 200 characters each
+py flows/ingest.py all 500           # all universes, 500 characters each
+py flows/ingest.py harrypotter 300   # single universe
 ```
 
-### 4. Run the pipeline
+### 4. Start the app
 
 ```bash
-python flows/ingest.py                   # Harry Potter, 200 characters (~3 min)
-python flows/ingest.py harrypotter 500   # Harry Potter, 500 characters
-python flows/ingest.py lotr 300          # Lord of the Rings
+start.bat
 ```
 
-### 5. Open the visualization
+This starts Neo4j (Docker) and the web server in one command.
+Then open **http://localhost:8000**, pick a universe, and the graph loads.
 
-```bash
-python visualize.py                      # saves graph.html, prints the file:// URL
-python visualize.py --universe lotr --max-nodes 150
-```
+To stop: `Ctrl+C` kills the web server. To also stop Neo4j: `docker compose down`.
 
 ---
 
@@ -113,9 +113,12 @@ fandom-knowledge-graph/
 │   ├── ingest.py          # Prefect flow: API → parse → Neo4j
 │   ├── parse.py           # infobox parsing (no Prefect, independently testable)
 │   └── load.py            # Neo4j write logic (no Prefect, independently testable)
+├── web/
+│   └── index.html         # Cytoscape.js single-page UI
 ├── config/
 │   └── universes.yaml     # universe configs: API URL, categories, field→edge mappings
-├── visualize.py           # generates an interactive HTML graph via Pyvis
+├── server.py              # FastAPI: serves the UI and /api/graph, /api/universes
+├── start.bat              # single command: starts Neo4j + web server
 ├── requirements.txt
 ├── docker-compose.yml
 ├── .env                   # local credentials (do not commit)
@@ -133,12 +136,3 @@ After running on the Harry Potter wiki, the graph contains ~500 characters and ~
 - zoom, pan, and drag nodes freely
 
 ---
-
-## Roadmap
-
-- [ ] Base pipeline: API → parse → Neo4j
-- [ ] Pyvis visualization
-- [ ] Multi-universe config
-- [ ] Cross-universe graph (connections via shared races / archetypes)
-- [ ] Web UI (FastAPI + D3.js)
-- [ ] Export to GraphML / JSON for Gephi
