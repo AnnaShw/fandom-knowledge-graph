@@ -319,6 +319,12 @@
 </div>
 
 <script>
+  const COMMUNITY_COLORS = [
+    '#d95f5f','#5f8fd9','#5fd97a','#d9a85f',
+    '#9f5fd9','#5fd4d9','#d97a5f','#5fd9c0',
+    '#d95fb4','#b4d95f',
+  ];
+
   const EDGE_COLORS = {
     FAMILY_OF:          '#e67e22',
     PARENT_OF:          '#e74c3c',
@@ -356,7 +362,7 @@
 
   function clearHighlight() {
     infoEl.classList.remove('visible');
-    if (cy) cy.elements().removeClass('highlighted dimmed');
+    if (cy) cy.elements().removeClass('highlighted dimmed path-node path-edge');
   }
 
   // ── Populate universe dropdown ──
@@ -380,18 +386,21 @@
     });
   }
 
-  // ── Build edge-type legend from what's actually present ──
-  let activeRelFilter = null;
+  // ── Build legend: edge types + community groups ──
+  let activeRelFilter      = null;
+  let activeCommunityFilter = null;
 
-  function buildLegend(edges) {
-    const seen = new Set();
+  function buildLegend(nodes, edges) {
     legendEl.innerHTML = '';
-    activeRelFilter = null;
+    activeRelFilter       = null;
+    activeCommunityFilter = null;
 
+    // Edge-type items
+    const seenRel = new Set();
     edges.forEach(e => {
       const t = e.data.rel_type;
-      if (!t || seen.has(t)) return;
-      seen.add(t);
+      if (!t || seenRel.has(t)) return;
+      seenRel.add(t);
       const color = EDGE_COLORS[t] || '#888';
       const label = t.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
       const item  = document.createElement('div');
@@ -401,6 +410,51 @@
       item.innerHTML   = `<div class="legend-dot" style="background:${color}"></div><span>${label}</span>`;
       item.addEventListener('click', () => toggleRelFilter(t));
       legendEl.appendChild(item);
+    });
+
+    // Separator
+    const sep = document.createElement('div');
+    sep.style.cssText = 'width:1px;background:#3d2e14;margin:2px 4px;align-self:stretch;flex-shrink:0';
+    legendEl.appendChild(sep);
+
+    // Community group items
+    const seenComm = new Map();
+    nodes.forEach(n => {
+      const c = n.data.community;
+      if (c !== undefined && !seenComm.has(c)) seenComm.set(c, n.data.communityColor);
+    });
+    seenComm.forEach((color, comm) => {
+      const item = document.createElement('div');
+      item.className        = 'legend-item';
+      item.dataset.community = comm;
+      item.style.setProperty('--rel-color', color);
+      item.innerHTML = `<div class="legend-dot" style="background:${color}"></div><span>Group ${comm + 1}</span>`;
+      item.addEventListener('click', () => toggleCommunityFilter(comm));
+      legendEl.appendChild(item);
+    });
+  }
+
+  function toggleCommunityFilter(community) {
+    if (!cy) return;
+    if (activeCommunityFilter === community) {
+      activeCommunityFilter = null;
+      cy.elements().removeClass('type-hidden');
+      legendEl.querySelectorAll('[data-community]').forEach(el => el.classList.remove('active', 'inactive'));
+      return;
+    }
+    activeCommunityFilter = community;
+    const visibleNodes = cy.nodes().filter(n => n.data('community') === community);
+    const visibleEdges = visibleNodes.edgesWith(visibleNodes);
+    cy.edges().addClass('type-hidden');
+    cy.nodes().addClass('type-hidden');
+    visibleEdges.removeClass('type-hidden');
+    visibleNodes.removeClass('type-hidden');
+    legendEl.querySelectorAll('[data-community]').forEach(el => {
+      if (parseInt(el.dataset.community) === community) {
+        el.classList.add('active'); el.classList.remove('inactive');
+      } else {
+        el.classList.add('inactive'); el.classList.remove('active');
+      }
     });
   }
 
@@ -473,8 +527,12 @@
   // ── Cytoscape render ──
   function renderGraph(nodes, edges) {
     document.getElementById('empty-state').classList.add('hidden');
-    activeRelFilter = null;
+    activeRelFilter       = null;
+    activeCommunityFilter = null;
     if (cy) cy.destroy();
+
+    // Ensure all nodes have a community color (fallback for old cache without analytics)
+    nodes.forEach(n => { if (!n.data.communityColor) n.data.communityColor = '#5c3d10'; });
 
     // Per-relationship-type edge colour rules
     const edgeStyleRules = Object.entries(EDGE_COLORS).map(([type, color]) => ({
@@ -490,7 +548,7 @@
         {
           selector: 'node',
           style: {
-            'background-color':        '#5c3d10',
+            'background-color':        'data(communityColor)',
             'border-color':            '#c9a84c',
             'border-width':            1.5,
             'width':                   'data(size)',
@@ -550,6 +608,24 @@
           selector: 'node.type-hidden',
           style: { 'opacity': 0.06 },
         },
+        {
+          selector: 'node.path-node',
+          style: {
+            'background-color':     '#c9a84c',
+            'border-color':         '#fff8e0',
+            'border-width':         3,
+            'min-zoomed-font-size': 0,
+          },
+        },
+        {
+          selector: 'edge.path-edge',
+          style: {
+            'line-color':         '#c9a84c',
+            'target-arrow-color': '#c9a84c',
+            'width':              3,
+            'opacity':            1,
+          },
+        },
         ...edgeStyleRules,
       ],
 
@@ -605,9 +681,35 @@
         </div>`;
       }).join('');
 
+      const rank       = node.data('rank');
+      const total      = node.data('total');
+      const community  = node.data('community');
+      const commColor  = node.data('communityColor') || '#888';
+
+      const statsHtml = `
+        <div style="margin-bottom:8px;font-size:0.82rem;color:#7a6030;display:flex;gap:12px;flex-wrap:wrap">
+          ${rank != null ? `<span>Rank <strong style="color:#c9a84c">#${rank}</strong> of ${total}</span>` : ''}
+          ${community != null ? `<span>Group <strong style="color:${commColor}">${community + 1}</strong></span>` : ''}
+          <span>Connections <strong style="color:#e8d5a3">${node.data('degree')}</strong></span>
+        </div>
+      `;
+
       const connectionsHtml = `
-        <div style="margin-bottom:8px;color:#7a6030">Connections: <strong style="color:#e8d5a3">${node.data('degree')}</strong></div>
+        ${statsHtml}
         ${rows || '<em style="color:#555">No relationships shown</em>'}
+        <div style="margin-top:14px;padding-top:12px;border-top:1px solid #3d2e14">
+          <div style="font-size:0.8rem;color:#7a6030;margin-bottom:6px">Find path to:</div>
+          <div style="display:flex;gap:6px">
+            <input id="path-target-input" type="text" placeholder="Character name…"
+                   style="flex:1;background:#1e1508;color:#e8d5a3;border:1px solid #3d2e14;
+                          border-radius:3px;padding:3px 8px;font-family:inherit;font-size:0.85rem">
+            <button id="path-find-btn"
+                    style="background:#1e1508;color:#c9a84c;border:1px solid #5a4020;
+                           border-radius:3px;padding:3px 12px;font-family:inherit;
+                           font-size:0.85rem;cursor:pointer;white-space:nowrap">Find</button>
+          </div>
+          <div id="path-result" style="margin-top:8px;font-size:0.82rem;line-height:1.6"></div>
+        </div>
       `;
 
       // Show panel immediately with a bio placeholder
@@ -617,6 +719,56 @@
         </div>
         ${connectionsHtml}
       `;
+
+      // Wire up path finder
+      const pathInput  = document.getElementById('path-target-input');
+      const pathBtn    = document.getElementById('path-find-btn');
+      const pathResult = document.getElementById('path-result');
+
+      async function findPath() {
+        const tgt = pathInput.value.trim();
+        if (!tgt || !currentUniverse) return;
+        pathResult.innerHTML = '<em style="color:#7a6030">Searching…</em>';
+        cy.elements().removeClass('path-node path-edge');
+
+        try {
+          const res  = await fetch(`/api/path?universe=${encodeURIComponent(currentUniverse)}&source=${encodeURIComponent(label)}&target=${encodeURIComponent(tgt)}`);
+          const data = await res.json();
+
+          if (data.error || !data.steps || !data.steps.length) {
+            pathResult.innerHTML = `<span style="color:#d95f5f">${data.error || 'No path found'}</span>`;
+            return;
+          }
+
+          // Highlight path
+          const pathSet = new Set(data.path);
+          cy.elements().addClass('dimmed');
+          cy.nodes().filter(n => pathSet.has(n.id())).removeClass('dimmed').addClass('path-node');
+          for (let i = 0; i < data.path.length - 1; i++) {
+            const a = data.path[i], b = data.path[i + 1];
+            cy.edges().filter(e =>
+              (e.source().id() === a && e.target().id() === b) ||
+              (e.source().id() === b && e.target().id() === a)
+            ).removeClass('dimmed').addClass('path-edge');
+          }
+
+          const stepsHtml = data.steps.map(s => {
+            const rel   = s.rel.replace(/_/g, ' ');
+            const color = EDGE_COLORS[s.rel] || '#888';
+            return `<div style="display:flex;align-items:center;gap:5px;margin:3px 0;flex-wrap:wrap">
+              <strong style="color:#e8d5a3">${s.from}</strong>
+              <span style="color:${color};font-size:0.75rem">→ ${rel} →</span>
+              <strong style="color:#e8d5a3">${s.to}</strong>
+            </div>`;
+          }).join('');
+          pathResult.innerHTML = `<div style="color:#7a6030;margin-bottom:4px">${data.path.length - 1} hop${data.path.length > 2 ? 's' : ''}:</div>${stepsHtml}`;
+        } catch (err) {
+          pathResult.innerHTML = `<span style="color:#d95f5f">Error: ${err.message}</span>`;
+        }
+      }
+
+      pathBtn.addEventListener('click', findPath);
+      pathInput.addEventListener('keydown', e => { if (e.key === 'Enter') findPath(); });
       infoEl.classList.add('visible');
 
       // Fetch bio asynchronously
@@ -669,7 +821,7 @@
       if (e.target === cy) clearHighlight();
     });
 
-    buildLegend(edges);
+    buildLegend(nodes, edges);
   }
 
   // ── Search: highlight matching nodes ──

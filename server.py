@@ -114,6 +114,58 @@ def get_graph(
     return {"nodes": nodes, "edges": edges}
 
 
+@app.get("/api/path")
+def get_path(
+    universe: str = Query("harrypotter"),
+    source:   str = Query(...),
+    target:   str = Query(...),
+):
+    import networkx as nx
+
+    cache_file = _cache_dir / f"{universe}.json"
+    if not cache_file.exists():
+        return {"steps": [], "error": "no cache for this universe"}
+
+    data    = json.loads(cache_file.read_text(encoding="utf-8"))
+    all_ids = {n["data"]["id"] for n in data["nodes"]}
+
+    def find_name(q: str) -> str | None:
+        q_lo = q.lower()
+        return next((nid for nid in all_ids if nid.lower() == q_lo), None)
+
+    src = find_name(source)
+    tgt = find_name(target)
+    if not src:
+        return {"steps": [], "error": f"Character '{source}' not found"}
+    if not tgt:
+        return {"steps": [], "error": f"Character '{target}' not found"}
+
+    G        = nx.DiGraph()
+    edge_map = {}
+    for e in data["edges"]:
+        s, t, r = e["data"]["source"], e["data"]["target"], e["data"]["rel_type"]
+        G.add_edge(s, t)
+        edge_map[(s, t)] = r
+        edge_map[(t, s)] = r
+
+    def rel_between(a: str, b: str) -> str:
+        return edge_map.get((a, b)) or edge_map.get((b, a)) or ""
+
+    try:
+        path = nx.shortest_path(G, src, tgt)
+    except (nx.NetworkXNoPath, nx.NodeNotFound):
+        try:
+            path = nx.shortest_path(G.to_undirected(), src, tgt)
+        except Exception:
+            return {"steps": [], "error": f"No path between '{src}' and '{tgt}'"}
+
+    steps = [
+        {"from": path[i], "to": path[i + 1], "rel": rel_between(path[i], path[i + 1])}
+        for i in range(len(path) - 1)
+    ]
+    return {"path": path, "steps": steps}
+
+
 _WIKI_HEADERS = {"User-Agent": "fandom-knowledge-graph/1.0 (educational project)"}
 
 

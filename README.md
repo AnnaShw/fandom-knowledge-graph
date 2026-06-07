@@ -35,10 +35,11 @@ The server always reads from the JSON cache first. Neo4j is only needed if you w
 | Orchestration | [Prefect](https://www.prefect.io/) | Modern, lightweight, runs locally with one command |
 | Data source | [MediaWiki API](https://www.mediawiki.org/wiki/API:Main_page) | Official, free, no scraping needed |
 | Parsing | `mwparserfromhell` | Parses wiki markup and infobox templates |
-| Cache | JSON files (`cache/*.json`) | Zero-dependency serving; refreshed by CI |
+| Cache | JSON files (`cache/*.json`) | Zero-dependency serving; refreshed by CI; includes analytics |
 | Database | Neo4j (Docker) | Optional — used during local re-ingestion only |
+| Analytics | [NetworkX](https://networkx.org/) | PageRank + Louvain community detection |
 | Web server | [FastAPI](https://fastapi.tiangolo.com/) | Serves the UI and REST endpoints |
-| Visualization | [Cytoscape.js](https://js.cytoscape.org/) | Interactive graph — pan, zoom, click, search |
+| Visualization | [Cytoscape.js](https://js.cytoscape.org/) | Interactive graph — pan, zoom, click, search, path finder |
 | CI refresh | GitHub Actions | Runs ingestion weekly, commits updated cache |
 | Language | Python 3.12+ | |
 
@@ -129,15 +130,28 @@ You can also trigger it manually from the **Actions** tab.
 
 ---
 
+## Graph analytics
+
+After each ingestion run, the following metrics are computed and embedded in the JSON cache:
+
+| Metric | Algorithm | Effect in UI |
+|---|---|---|
+| **PageRank** | Power-iteration  | Node size — narratively important characters appear larger even with few direct links |
+| **Community detection** | Louvain (via NetworkX) | Node color — auto-discovered factions/houses get distinct colors |
+| **Rank** | Sorted by PageRank | Shown in info panel: "Rank #3 of 300" |
+
+---
+
 ## UI features
 
 - Universe picker — auto-loads graph on selection
-- Max-nodes slider — show top N characters by connection count
+- Max-nodes slider — show top N characters by connection count (ranked by PageRank)
 - Search box — highlights matching nodes and their neighbours
-- Click a node — info panel shows a wiki bio + all relationships
+- Click a node — info panel shows wiki bio, rank, community group, all relationships
 - Click an edge — shows the relationship between two characters
-- Clickable legend — filter graph by relationship type (Family, Member of, …)
-- Click background — clears highlight
+- **Path finder** — after clicking a character, type another name and press Enter to find the shortest connection path; highlighted in gold with hop-by-hop relationship labels
+- Clickable legend — filter by relationship type (left side) or community group (right side)
+- Click background — clears all highlights
 
 ---
 
@@ -148,7 +162,8 @@ fandom-knowledge-graph/
 ├── flows/
 │   ├── ingest.py          # Prefect flow: API → parse → Neo4j + JSON cache
 │   ├── parse.py           # infobox parsing (no Prefect, independently testable)
-│   └── load.py            # Neo4j write logic (no Prefect, independently testable)
+│   ├── load.py            # Neo4j write logic (no Prefect, independently testable)
+│   └── analytics.py       # PageRank + Louvain community detection (pure Python)
 ├── web/
 │   └── index.html         # Cytoscape.js single-page UI
 ├── cache/
