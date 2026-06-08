@@ -1,23 +1,34 @@
 """
-Generate an interactive HTML graph from Neo4j data.
+Generate an interactive analytics dashboard from the JSON cache.
+
+Panels:
+  - Character network: nodes colored by community, sized by PageRank
+  - Top characters by PageRank (horizontal bar)
+  - Community distribution (pie)
 
 Usage:
-    python visualize.py                          # Harry Potter, up to 300 nodes
-    python visualize.py --universe lotr          # Lord of the Rings
-    python visualize.py --max-nodes 100          # smaller graph, faster layout
+    python visualize.py                      # Harry Potter, up to 300 nodes
+    python visualize.py --universe dune
+    python visualize.py --max-nodes 150
     python visualize.py --output my_graph.html
 """
-import os
+import json
 import argparse
-from dotenv import load_dotenv
-from neo4j import GraphDatabase
-from pyvis.network import Network
+from collections import Counter, defaultdict
+from pathlib import Path
 
-load_dotenv()
+import networkx as nx
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
-NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
-NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
-NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "fandom123")
+
+CACHE_DIR = Path(__file__).parent / "cache"
+
+COMMUNITY_COLORS = [
+    '#d95f5f', '#5f8fd9', '#5fd97a', '#d9a85f',
+    '#9f5fd9', '#5fd4d9', '#d97a5f', '#5fd9c0',
+    '#d95fb4', '#b4d95f',
+]
 
 EDGE_COLORS: dict[str, str] = {
     "FAMILY_OF":          "#e67e22",
@@ -33,106 +44,204 @@ EDGE_COLORS: dict[str, str] = {
     "FROM_HOMEWORLD":     "#00bcd4",
 }
 
-PYVIS_OPTIONS = """
-{
-  "physics": {
-    "solver": "forceAtlas2Based",
-    "forceAtlas2Based": {
-      "gravitationalConstant": -60,
-      "centralGravity": 0.005,
-      "springLength": 130,
-      "springConstant": 0.05,
-      "damping": 0.4
-    },
-    "stabilization": {"iterations": 200, "fit": true}
-  },
-  "nodes": {
-    "shape": "dot",
-    "size": 16,
-    "borderWidth": 2,
-    "borderWidthSelected": 4,
-    "font": {"size": 14, "face": "Arial", "color": "#ffffff"}
-  },
-  "edges": {
-    "arrows": {"to": {"enabled": true, "scaleFactor": 0.6}},
-    "smooth": {"type": "curvedCW", "roundness": 0.2},
-    "width": 1.5
-  },
-  "interaction": {
-    "hover": true,
-    "tooltipDelay": 150,
-    "navigationButtons": true,
-    "keyboard": true
-  }
-}
-"""
+
+def load_cache(universe: str, max_nodes: int) -> tuple[list[dict], list[dict]]:
+    cache_file = CACHE_DIR / f"{universe}.json"
+    if not cache_file.exists():
+        raise FileNotFoundError(
+            f"Cache not found: {cache_file}\n"
+            f"Run: python flows/ingest.py {universe}"
+        )
+    data = json.loads(cache_file.read_text(encoding="utf-8"))
+    nodes = sorted(data["nodes"], key=lambda n: n["data"]["degree"], reverse=True)[:max_nodes]
+    ids = {n["data"]["id"] for n in nodes}
+    edges = [e for e in data["edges"] if e["data"]["source"] in ids and e["data"]["target"] in ids]
+    return nodes, edges
 
 
-def build_graph(universe: str, max_nodes: int = 300, output: str = "graph.html") -> None:
-    driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
+def compute_positions(nodes: list[dict], edges: list[dict]) -> dict[str, tuple[float, float]]:
+    G = nx.Graph()
+    for n in nodes:
+        G.add_node(n["data"]["id"])
+    for e in edges:
+        G.add_edge(e["data"]["source"], e["data"]["target"])
+    k = 2.0 / len(G) ** 0.5 if len(G) > 1 else 1.0
+    return nx.spring_layout(G, k=k, seed=42, iterations=60)
 
-    net = Network(
-        height="95vh",
-        width="100%",
-        bgcolor="#0f0f23",
-        font_color="#ffffff",
-        directed=True,
-        notebook=False,
+
+def _network_traces(nodes: list[dict], edges: list[dict], pos: dict) -> list[go.BaseTraceType]:
+    traces: list[go.BaseTraceType] = []
+
+    # One line-trace per relationship type so the legend shows edge categories
+    rel_edges: dict[str, list] = defaultdict(list)
+    for e in edges:
+        rel_edges[e["data"]["rel_type"]].append(e)
+
+    for rel_type, group in rel_edges.items():
+        xs, ys = [], []
+        for e in group:
+            s, t = e["data"]["source"], e["data"]["target"]
+            if s in pos and t in pos:
+                xs += [pos[s][0], pos[t][0], None]
+                ys += [pos[s][1], pos[t][1], None]
+        traces.append(go.Scatter(
+            x=xs, y=ys, mode='lines',
+            line=dict(width=0.7, color=EDGE_COLORS.get(rel_type, "#666666")),
+            hoverinfo='none',
+            name=rel_type.replace("_", " ").title(),
+            legendgroup=f"edge_{rel_type}",
+            legendgrouptitle_text="Relationships" if rel_type == next(iter(rel_edges)) else None,
+        ))
+
+    # One marker-trace per community so the legend shows faction colors
+    comm_groups: dict[int, list] = defaultdict(list)
+    for n in nodes:
+        comm_groups[n["data"]["community"]].append(n)
+
+    first_comm = True
+    for comm_id, group in sorted(comm_groups.items()):
+        xs, ys, labels, hovers, sizes = [], [], [], [], []
+        color = COMMUNITY_COLORS[comm_id % len(COMMUNITY_COLORS)]
+        comm_name = group[0]["data"].get("communityName", f"Group {comm_id + 1}")
+
+        for n in group:
+            nid = n["data"]["id"]
+            if nid not in pos:
+                continue
+            x, y = pos[nid]
+            xs.append(x); ys.append(y)
+            labels.append(nid if n["data"].get("rank", 9999) <= 15 else "")
+            hovers.append(
+                f"<b>{nid}</b><br>"
+                f"Community: {comm_name}<br>"
+                f"PageRank rank: #{n['data'].get('rank', '?')} / {n['data'].get('total', '?')}<br>"
+                f"Connections: {n['data'].get('degree', 0)}"
+            )
+            sizes.append(n["data"].get("size", 12))
+
+        traces.append(go.Scatter(
+            x=xs, y=ys, mode='markers+text',
+            marker=dict(size=sizes, color=color, line=dict(width=1, color='#0f0f23')),
+            text=labels,
+            textposition='top center',
+            textfont=dict(size=9, color='#dddddd'),
+            hovertext=hovers, hoverinfo='text',
+            name=comm_name,
+            legendgroup=f"comm_{comm_id}",
+            legendgrouptitle_text="Communities" if first_comm else None,
+        ))
+        first_comm = False
+
+    return traces
+
+
+def _pagerank_bar(nodes: list[dict], top_n: int = 15) -> go.Bar:
+    top = sorted(nodes, key=lambda n: n["data"].get("pagerank", 0), reverse=True)[:top_n]
+    return go.Bar(
+        x=[round(n["data"]["pagerank"] * 1000, 3) for n in top],
+        y=[n["data"]["id"] for n in top],
+        orientation='h',
+        marker=dict(
+            color=[COMMUNITY_COLORS[n["data"]["community"] % len(COMMUNITY_COLORS)] for n in top],
+            line=dict(width=0.5, color='#0f0f23'),
+        ),
+        hovertemplate='<b>%{y}</b><br>PageRank ×1000: %{x:.3f}<extra></extra>',
+        showlegend=False,
     )
-    net.set_options(PYVIS_OPTIONS)
 
-    with driver.session() as session:
-        # Prioritize well-connected characters so the graph is interesting at any size limit
-        node_records = session.run(
-            """
-            MATCH (c:Character {universe: $u})
-            OPTIONAL MATCH (c)-[r]-()
-            RETURN c.name AS name, count(r) AS degree
-            ORDER BY degree DESC
-            LIMIT $limit
-            """,
-            u=universe, limit=max_nodes,
-        ).data()
 
-        if not node_records:
-            print(f"No characters found for universe '{universe}'. Did you run the ingestion?")
-            driver.close()
-            return
+def _community_pie(nodes: list[dict]) -> go.Pie:
+    counts: Counter = Counter()
+    names: dict[int, str] = {}
+    for n in nodes:
+        c = n["data"]["community"]
+        counts[c] += 1
+        names[c] = n["data"].get("communityName", f"Group {c + 1}")
+    comm_ids = sorted(counts)
+    return go.Pie(
+        labels=[names[c] for c in comm_ids],
+        values=[counts[c] for c in comm_ids],
+        marker=dict(
+            colors=[COMMUNITY_COLORS[c % len(COMMUNITY_COLORS)] for c in comm_ids],
+            line=dict(width=1, color='#0f0f23'),
+        ),
+        textinfo='label+percent',
+        hovertemplate='<b>%{label}</b><br>%{value} characters (%{percent})<extra></extra>',
+        showlegend=False,
+    )
 
-        node_names = [r["name"] for r in node_records]
-        max_degree = max(r["degree"] for r in node_records) or 1
 
-        for r in node_records:
-            size = 10 + int(30 * (r["degree"] / max_degree))
-            net.add_node(r["name"], label=r["name"], title=r["name"], size=size)
+def build_dashboard(universe: str, max_nodes: int, output: str) -> None:
+    print(f"Loading cache: {universe} (up to {max_nodes} nodes)...")
+    nodes, edges = load_cache(universe, max_nodes)
 
-        edge_records = session.run(
-            """
-            MATCH (a:Character {universe: $u})-[r]->(b:Character {universe: $u})
-            WHERE a.name IN $names AND b.name IN $names
-            RETURN a.name AS source, type(r) AS rel_type, b.name AS target
-            LIMIT 3000
-            """,
-            u=universe, names=node_names,
-        ).data()
+    print(f"Computing layout ({len(nodes)} nodes, {len(edges)} edges)...")
+    pos = compute_positions(nodes, edges)
 
-        for r in edge_records:
-            color = EDGE_COLORS.get(r["rel_type"], "#888888")
-            label = r["rel_type"].replace("_", " ").title()
-            net.add_edge(r["source"], r["target"], title=label, color=color)
+    fig = make_subplots(
+        rows=2, cols=2,
+        specs=[
+            [{"colspan": 2, "type": "xy"}, None],
+            [{"type": "xy"}, {"type": "domain"}],
+        ],
+        subplot_titles=(
+            f"{universe.upper()} — Character Network",
+            "Top Characters by PageRank",
+            "Community Distribution",
+        ),
+        row_heights=[0.65, 0.35],
+        vertical_spacing=0.08,
+        horizontal_spacing=0.12,
+    )
 
-    driver.close()
+    for trace in _network_traces(nodes, edges, pos):
+        fig.add_trace(trace, row=1, col=1)
 
-    net.save_graph(output)
-    abs_path = os.path.abspath(output)
-    print(f"Saved: {output}  ({len(net.nodes)} nodes, {len(net.edges)} edges)")
-    print(f"Open:  file://{abs_path}")
+    fig.add_trace(_pagerank_bar(nodes), row=2, col=1)
+    fig.add_trace(_community_pie(nodes), row=2, col=2)
+
+    fig.update_layout(
+        template='plotly_dark',
+        paper_bgcolor='#0f0f23',
+        plot_bgcolor='#0f0f23',
+        font=dict(color='#ffffff', family='Arial'),
+        height=940,
+        title=dict(
+            text=(
+                f"<b>Fandom Knowledge Graph</b>  ·  {universe}  "
+                f"<span style='font-size:13px;color:#aaaaaa'>"
+                f"{len(nodes)} characters · {len(edges)} relationships</span>"
+            ),
+            font=dict(size=18),
+            x=0.5,
+        ),
+        legend=dict(
+            bgcolor='rgba(15,15,35,0.85)',
+            bordercolor='#333',
+            borderwidth=1,
+            font=dict(size=11),
+            groupclick='toggleitem',
+        ),
+        margin=dict(l=20, r=20, t=70, b=20),
+    )
+
+    # Network panel: hide axes
+    fig.update_xaxes(showgrid=False, zeroline=False, showticklabels=False, row=1, col=1)
+    fig.update_yaxes(showgrid=False, zeroline=False, showticklabels=False, row=1, col=1)
+
+    # PageRank panel styling
+    fig.update_xaxes(title_text="PageRank ×1000", showgrid=True, gridcolor='#2a2a4a', row=2, col=1)
+    fig.update_yaxes(autorange="reversed", showgrid=False, row=2, col=1)
+
+    fig.write_html(output, include_plotlyjs='cdn')
+    print(f"Saved: {output}")
+    print(f"Open:  file://{Path(output).resolve()}")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Visualize the fandom knowledge graph")
-    parser.add_argument("--universe",  default="harrypotter")
+    parser = argparse.ArgumentParser(description="Fandom knowledge graph — analytics dashboard")
+    parser.add_argument("--universe",  default="harrypotter", choices=["harrypotter", "dune"])
     parser.add_argument("--max-nodes", type=int, default=300)
     parser.add_argument("--output",    default="graph.html")
     args = parser.parse_args()
-    build_graph(args.universe, args.max_nodes, args.output)
+    build_dashboard(args.universe, args.max_nodes, args.output)

@@ -4,6 +4,5 @@ mwparserfromhell>=0.6.6
 neo4j>=5.15.0
 pyyaml>=6.0.1
 python-dotenv>=1.0.0
-fastapi>=0.111.0
-uvicorn[standard]>=0.29.0
 networkx>=3.3
+plotly>=5.22.0

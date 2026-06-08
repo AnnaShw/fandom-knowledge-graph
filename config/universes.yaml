@@ -21,12 +21,3 @@ harrypotter:
   api_url: "https://harrypotter.fandom.com/api.php"
   character_template: "Individual infobox"
 
-lotr:
-  name: "Lord of the Rings"
-  api_url: "https://lotr.fandom.com/api.php"
-  character_category: "The Lord of the Rings characters"
-
-dune:
-  name: "Dune"
-  api_url: "https://dune.fandom.com/api.php"
-  character_category: "Characters"
