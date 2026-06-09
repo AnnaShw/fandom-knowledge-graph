@@ -43,8 +43,23 @@ COMMUNITY_COLORS = [
     '#b4d95f',  # lime
 ]
 
+# Maps top-PageRank character name → canonical in-universe faction name, per universe.
+CANONICAL_FACTION_NAMES: dict[str, dict[str, str]] = {
+    "harrypotter": {
+        "Tom Riddle":           "Death Eaters",
+        "Sirius Black":         "Marauders & Alumni",
+        "Harry Potter":         "Gryffindor",
+        "Albus Dumbledore":     "Order of the Phoenix",
+        "Porpentina Goldstein": "Fantastic Beasts",
+        "Frank Longbottom":     "Longbottom Family",
+        "Cho Chang":            "Hufflepuff & Ravenclaw",
+        "Hepzibah Smith":       "Hufflepuff Founders",
+        "Other characters":     "Hogwarts Spirits & Staff",
+    },
+}
 
-def compute_analytics(nodes: list[dict], edges: list[dict]) -> list[dict]:
+
+def compute_analytics(nodes: list[dict], edges: list[dict], universe: str = "") -> list[dict]:
     """
     Enrich node dicts with pagerank, rank, community, communityColor, and size.
     Mutates and returns the same list.
@@ -78,13 +93,15 @@ def compute_analytics(nodes: list[dict], edges: list[dict]) -> list[dict]:
         for node_id in members:
             community_map[node_id] = idx
         top = max(members, key=lambda n: pagerank.get(n, 0))
-        community_names[idx] = top
+        faction_map = CANONICAL_FACTION_NAMES.get(universe, {})
+        community_names[idx] = faction_map.get(top, top)
 
     other_idx = len(named)
     for node_id in others:
         community_map[node_id] = other_idx
     if others:
-        community_names[other_idx] = "Other characters"
+        faction_map = CANONICAL_FACTION_NAMES.get(universe, {})
+        community_names[other_idx] = faction_map.get("Other characters", "Other characters")
 
     max_pr = max(pagerank.values()) if pagerank else 1.0
     total  = len(nodes)

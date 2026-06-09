@@ -30,6 +30,22 @@ COMMUNITY_COLORS = [
     '#d95fb4', '#b4d95f',
 ]
 
+# Overrides communityName in the cache for universes that store the top character's
+# name instead of the canonical faction name (applied after loading, before rendering).
+CANONICAL_COMMUNITY_NAMES: dict[str, dict[str, str]] = {
+    "harrypotter": {
+        "Tom Riddle":           "Death Eaters",
+        "Sirius Black":         "Marauders & Alumni",
+        "Harry Potter":         "Gryffindor",
+        "Albus Dumbledore":     "Order of the Phoenix",
+        "Porpentina Goldstein": "Fantastic Beasts",
+        "Frank Longbottom":     "Longbottom Family",
+        "Cho Chang":            "Hufflepuff & Ravenclaw",
+        "Hepzibah Smith":       "Hufflepuff Founders",
+        "Other characters":     "Hogwarts Spirits & Staff",
+    },
+}
+
 EDGE_COLORS: dict[str, str] = {
     "FAMILY_OF":          "#e67e22",
     "PARENT_OF":          "#e74c3c",
@@ -56,6 +72,13 @@ def load_cache(universe: str, max_nodes: int) -> tuple[list[dict], list[dict]]:
     nodes = sorted(data["nodes"], key=lambda n: n["data"]["degree"], reverse=True)[:max_nodes]
     ids = {n["data"]["id"] for n in nodes}
     edges = [e for e in data["edges"] if e["data"]["source"] in ids and e["data"]["target"] in ids]
+
+    name_overrides = CANONICAL_COMMUNITY_NAMES.get(universe, {})
+    if name_overrides:
+        for n in nodes:
+            old = n["data"].get("communityName", "")
+            n["data"]["communityName"] = name_overrides.get(old, old)
+
     return nodes, edges
 
 
@@ -69,7 +92,7 @@ def compute_positions(nodes: list[dict], edges: list[dict]) -> dict[str, tuple[f
     return nx.spring_layout(G, k=k, seed=42, iterations=60)
 
 
-def _network_traces(nodes: list[dict], edges: list[dict], pos: dict) -> list[go.BaseTraceType]:
+def _network_traces(nodes: list[dict], edges: list[dict], pos: dict) -> list:
     traces: list[go.BaseTraceType] = []
 
     # One line-trace per relationship type so the legend shows edge categories
@@ -135,17 +158,55 @@ def _network_traces(nodes: list[dict], edges: list[dict], pos: dict) -> list[go.
     return traces
 
 
-def _pagerank_bar(nodes: list[dict], top_n: int = 15) -> go.Bar:
-    top = sorted(nodes, key=lambda n: n["data"].get("pagerank", 0), reverse=True)[:top_n]
+def _bridge_bar(nodes: list[dict], edges: list[dict], top_n: int = 15) -> go.Bar:
+    G = nx.Graph()
+    comm_map: dict[str, int] = {}
+    data_map: dict[str, dict] = {}
+    for n in nodes:
+        nid = n["data"]["id"]
+        G.add_node(nid)
+        comm_map[nid] = n["data"]["community"]
+        data_map[nid] = n["data"]
+    for e in edges:
+        s, t = e["data"]["source"], e["data"]["target"]
+        if s in comm_map and t in comm_map:
+            G.add_edge(s, t)
+
+    betweenness = nx.betweenness_centrality(G, normalized=True)
+
+    top = sorted(nodes, key=lambda n: betweenness.get(n["data"]["id"], 0), reverse=True)[:top_n]
+
+    xs, ys, colors, hovers = [], [], [], []
+    for n in top:
+        nid = n["data"]["id"]
+        my_comm = n["data"]["community"]
+        my_faction = n["data"].get("communityName", "")
+        neighbors = list(G.neighbors(nid))
+        bridged = sorted({
+            data_map[nb].get("communityName", "")
+            for nb in neighbors
+            if nb in comm_map and comm_map[nb] != my_comm
+        })
+        xs.append(round(betweenness[nid] * 100, 3))
+        ys.append(nid)
+        colors.append(COMMUNITY_COLORS[my_comm % len(COMMUNITY_COLORS)])
+        hovers.append(
+            f"<b>{nid}</b><br>"
+            f"Faction: {my_faction}<br>"
+            f"Betweenness: {betweenness[nid]*100:.2f}%<br>"
+            f"Bridges to: {', '.join(bridged) if bridged else '—'}"
+        )
+
     return go.Bar(
-        x=[round(n["data"]["pagerank"] * 1000, 3) for n in top],
-        y=[n["data"]["id"] for n in top],
+        x=xs,
+        y=ys,
         orientation='h',
         marker=dict(
-            color=[COMMUNITY_COLORS[n["data"]["community"] % len(COMMUNITY_COLORS)] for n in top],
+            color=colors,
             line=dict(width=0.5, color='#0f0f23'),
         ),
-        hovertemplate='<b>%{y}</b><br>PageRank ×1000: %{x:.3f}<extra></extra>',
+        customdata=hovers,
+        hovertemplate='%{customdata}<extra></extra>',
         showlegend=False,
     )
 
@@ -186,7 +247,7 @@ def build_dashboard(universe: str, max_nodes: int, output: str) -> None:
         ],
         subplot_titles=(
             f"{universe.upper()} — Character Network",
-            "Top Characters by PageRank",
+            "Bridge Characters (Betweenness Centrality)",
             "Community Distribution",
         ),
         row_heights=[0.65, 0.35],
@@ -197,7 +258,7 @@ def build_dashboard(universe: str, max_nodes: int, output: str) -> None:
     for trace in _network_traces(nodes, edges, pos):
         fig.add_trace(trace, row=1, col=1)
 
-    fig.add_trace(_pagerank_bar(nodes), row=2, col=1)
+    fig.add_trace(_bridge_bar(nodes, edges), row=2, col=1)
     fig.add_trace(_community_pie(nodes), row=2, col=2)
 
     fig.update_layout(
@@ -230,7 +291,7 @@ def build_dashboard(universe: str, max_nodes: int, output: str) -> None:
     fig.update_yaxes(showgrid=False, zeroline=False, showticklabels=False, row=1, col=1)
 
     # PageRank panel styling
-    fig.update_xaxes(title_text="PageRank ×1000", showgrid=True, gridcolor='#2a2a4a', row=2, col=1)
+    fig.update_xaxes(title_text="Betweenness (%)", showgrid=True, gridcolor='#2a2a4a', row=2, col=1)
     fig.update_yaxes(autorange="reversed", showgrid=False, row=2, col=1)
 
     fig.write_html(output, include_plotlyjs='cdn')

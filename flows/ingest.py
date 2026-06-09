@@ -183,7 +183,7 @@ def export_cache(universe_key: str, characters: list[dict], known_names: set[str
     ]
 
     from flows.analytics import compute_analytics
-    nodes = compute_analytics(nodes, edges)
+    nodes = compute_analytics(nodes, edges, universe=universe_key)
 
     CACHE_DIR.mkdir(exist_ok=True)
     out = CACHE_DIR / f"{universe_key}.json"
