@@ -124,10 +124,19 @@ The `--cache-only` flag skips Neo4j entirely and only writes the JSON cache (use
 | Panel | What it shows |
 |---|---|
 | **Character network** | Force-directed graph (spring layout via NetworkX); nodes sized by PageRank, colored by detected community |
-| **Top characters by PageRank** | Horizontal bar chart of the 15 most narratively central characters |
+| **Bridge characters** | Horizontal bar chart of characters with the highest betweenness centrality — those who connect different factions |
 | **Community distribution** | Pie chart of auto-detected factions/houses and their sizes |
 
 Hover any node to see its rank, community, and connection count. Top 15 characters by PageRank are labeled directly on the graph.
+
+### Why this is useful for understanding the story
+
+Fictional universes are built around relationships — alliances, rivalries, families, betrayals. The graph makes those structures visible at a glance:
+
+- **Node size = narrative importance.** PageRank rewards characters who are connected to other well-connected characters, not just those with the most raw links. Dumbledore and Voldemort rank high not because they appear everywhere, but because the characters they touch are themselves central to the story.
+- **Color = faction.** Community detection runs without any prior knowledge of houses, sides, or allegiances — it infers them purely from the relationship graph. Seeing Gryffindor, Death Eaters, and the Order of the Phoenix emerge as distinct color clusters confirms the story's natural faction structure.
+- **Bridge characters = pivotal figures.** Characters with high betweenness (the bar chart) sit on the shortest paths between factions. In Harry Potter, Snape and Dumbledore score high here — exactly the characters whose dual loyalties drive the plot. A character who bridges many communities is often the one whose choices change the story.
+- **Proximity = shared world.** Nodes that cluster together have overlapping social circles. Characters who appear far apart on the graph rarely interact — useful for spotting isolated subplots or characters who exist mostly within one faction bubble.
 
 ```bash
 py visualize.py --universe harrypotter   # default: 300 nodes → graph.html
@@ -155,6 +164,7 @@ The workflow in `.github/workflows/refresh-cache.yml` runs every Monday at 03:00
 1. Fetches fresh data from all wiki APIs
 2. Writes updated `cache/*.json`
 3. Commits and pushes the changes
+4. Updates visualizetion
 
 You can also trigger it manually from the **Actions** tab.
 
