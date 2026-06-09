@@ -128,8 +128,8 @@ The `--cache-only` flag skips Neo4j entirely and only writes the JSON cache (use
 Hover any node to see its rank, community, and connection count. Top 15 characters by PageRank are labeled directly on the graph.
 
 ```bash
-python visualize.py --universe harrypotter   # default: 300 nodes → graph.html
-python visualize.py --universe dune --max-nodes 150 --output dune.html
+py visualize.py --universe harrypotter   # default: 300 nodes → graph.html
+py visualize.py --universe dune --max-nodes 150 --output dune.html
 ```
 
 ---
