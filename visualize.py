@@ -69,8 +69,8 @@ def compute_positions(nodes: list[dict], edges: list[dict]) -> dict[str, tuple[f
     return nx.spring_layout(G, k=k, seed=42, iterations=60)
 
 
-def _network_traces(nodes: list[dict], edges: list[dict], pos: dict) -> list[go.BaseTraceType]:
-    traces: list[go.BaseTraceType] = []
+def _network_traces(nodes: list[dict], edges: list[dict], pos: dict) -> list:
+    traces: list = []
 
     # One line-trace per relationship type so the legend shows edge categories
     rel_edges: dict[str, list] = defaultdict(list)
