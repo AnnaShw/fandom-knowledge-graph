@@ -29,11 +29,14 @@ jobs:
       - name: Ingest all universes (cache-only, no Neo4j needed)
         run: python flows/ingest.py all 300 --cache-only
 
+      - name: Regenerate visualization
+        run: python visualize.py
+
       - name: Commit updated cache
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add cache/
+          git add cache/ graph.html
           if ! git diff --staged --quiet; then
             git commit -m "chore: refresh graph cache [skip ci]"
             git push

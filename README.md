@@ -2,6 +2,8 @@
 
 A knowledge graph of characters and their relationships across fictional universes, built from Fandom wiki data.
 
+**[View interactive graph →](https://AnnaShw.github.io/fandom-knowledge-graph/graph.html)**
+
 The pipeline fetches pages via the official MediaWiki API, parses infoboxes, and builds a social network of characters — no scraping, no ban risk.
 
 ---
