@@ -2,6 +2,8 @@
 
 A knowledge graph of characters and their relationships across fictional universes, built from Fandom wiki data.
 
+**[View interactive graph →](https://AnnaShw.github.io/fandom-knowledge-graph/graph.html)**
+
 The pipeline fetches pages via the official MediaWiki API, parses infoboxes, and builds a social network of characters — no scraping, no ban risk.
 
 ---
@@ -128,8 +130,8 @@ The `--cache-only` flag skips Neo4j entirely and only writes the JSON cache (use
 Hover any node to see its rank, community, and connection count. Top 15 characters by PageRank are labeled directly on the graph.
 
 ```bash
-python visualize.py --universe harrypotter   # default: 300 nodes → graph.html
-python visualize.py --universe dune --max-nodes 150 --output dune.html
+py visualize.py --universe harrypotter   # default: 300 nodes → graph.html
+py visualize.py --universe dune --max-nodes 150 --output dune.html
 ```
 
 ---
